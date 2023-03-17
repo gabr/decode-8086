@@ -5,14 +5,12 @@ const math    = std.math;
 const process = std.process;
 
 pub fn main() !void {
-    // Here we use an ArenaAllocator backed by a DirectAllocator because
-    // a build is a short-lived, one shot program. We don't need to waste time
-    // freeing memory and finding places to squish bytes into. So we free
-    // everything all at once at the very end.
+    // just get memory in pages and free all at the end
     var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
     defer arena.deinit();
-
     const allocator = arena.allocator();
+
+    // handle args
     var args = try process.argsAlloc(allocator);
     defer process.argsFree(allocator, args);
 
@@ -29,8 +27,12 @@ pub fn main() !void {
         return;
     }
 
-    const cwd = try fs.cwd().realpathAlloc(allocator, ".");
-    const asm_file_absolute_path = try fs.path.resolve(allocator, &[_][]const u8{ cwd, asm_file_path });
+    // open file
+    var asm_file_absolute_path: []u8 = asm_file_path;
+    if (fs.path.isAbsolute(asm_file_absolute_path) == false) {
+        const cwd = try fs.cwd().realpathAlloc(allocator, ".");
+        asm_file_absolute_path = try fs.path.resolve(allocator, &[_][]const u8{ cwd, asm_file_path });
+    }
     const asm_file = try fs.openFileAbsolute(asm_file_absolute_path, .{});
     defer asm_file.close();
 
