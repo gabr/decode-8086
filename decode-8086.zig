@@ -23,7 +23,7 @@ pub fn main() !void {
     std.debug.print("{s}:\n", .{asm_file_path});
 
     if (mem.endsWith(u8, fs.path.extension(asm_file_path), ".asm")) {
-        std.debug.print("Expected binary file but got and .asm one!\n", .{});
+        std.debug.print("Expected binary file but got an .asm one!\n", .{});
         return;
     }
 

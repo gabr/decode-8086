@@ -4,6 +4,7 @@ Created as an exercise for https://www.computerenhance.com course.
 
 
 Build with zig-linux-x86_64-0.10.1
+https://ziglang.org/download/#release-0.10.1
 
 Compile: zig build-exe decode-8086.zig
 Tests:   zig test decode-8086.zig
