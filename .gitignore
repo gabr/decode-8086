@@ -1,2 +1,5 @@
 decode-8086
 *.o
+*.exe
+*.exe.obj
+*.pdb
