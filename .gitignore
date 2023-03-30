@@ -3,3 +3,7 @@ decode-8086
 *.exe
 *.exe.obj
 *.pdb
+
+# ignore helper scripts
+*.bat
+*.sh
