@@ -106,7 +106,7 @@ const Parsers = struct { // this struct is used only as a namespace
 
             // validate
             if (mov.type != 0b100010 or  // we support only one mov type
-                mov.mod  != 0b11 or      // ane only register mode
+                mov.mod  != 0b11 or      // and only register mode
                 mov.d    != 0) {         // d == 0 means that the source register
                                          // is in src field, no idea what happens if d == 1
               break;
