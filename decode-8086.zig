@@ -35,6 +35,7 @@ pub fn main() !void {
     const asm_file_content = try asm_file.readToEndAlloc(allocator, math.maxInt(usize));
     //std.debug.print("bytes to decode ({}): {x}\n", .{asm_file_content.len, std.fmt.fmtSliceHexLower(asm_file_content)});
 
+    // create output writer - we are writing to standard output
     const stdout_file = std.io.getStdOut().writer();
     var bw = std.io.bufferedWriter(stdout_file);
     const stdout = bw.writer();
@@ -45,7 +46,7 @@ pub fn main() !void {
     // then decode the binary file into asm
     try decode8086(asm_file_content, stdout);
 
-    // and flush the buffered output into the stdout
+    // and flush the buffered output
     try bw.flush();
 }
 
@@ -60,8 +61,9 @@ fn decode8086(bytes: []u8, output_writer: anytype) !void {
         bytes_read += try Parsers.MOV(bytes[bytes_read..], output_writer);
 
         // if no bytes were consumed we have an unknown instruction
-        if (bytes_read <= start_bytes_read)
+        if (bytes_read <= start_bytes_read) {
             return error.UnknownInstruction;
+        }
     }
 }
 
@@ -70,6 +72,7 @@ fn decode8086(bytes: []u8, output_writer: anytype) !void {
 /// and will not search past first byte and does not skip any bytes.
 /// Writes parsed instructions to output_writer and returns parsed bytes count.
 const Parsers = struct { // this struct is used only as a namespace
+    // converts reg and w values to reg string representation
     fn parseReg(reg: u3, w: u1) []const u8 {
         return switch(reg) {
             0b000 => if (w == 0) "al" else "ax",
@@ -87,7 +90,7 @@ const Parsers = struct { // this struct is used only as a namespace
         // 1000 1001 1101 1001 -> mov cx, bx
         const MOVRegToReg = packed struct {
             w: u1, d: u1, type: u6,
-            reg_dest: u3, reg_src: u3, mod: u2,
+            rm: u3, reg: u3, mod: u2,
         };
 
         const mov_type = 0b100010;
@@ -96,31 +99,35 @@ const Parsers = struct { // this struct is used only as a namespace
         var bytes_read: usize = 0;
         while (true) {
             // do we have enough bytes
-            if (bytes.len + bytes_read < @sizeOf(MOVRegToReg)) break;
+            if (bytes.len + bytes_read < @sizeOf(MOVRegToReg)) {
+                break;
+            }
 
             // cast to struct
             const mov = @ptrCast(*align(1) const MOVRegToReg, bytes.ptr + bytes_read).*;
             //std.debug.print("MOV: {}\n", .{mov});
 
             // validate
-            if (mov.type != mov_type or mov.mod != register_mode) break;
+            if (mov.type != mov_type or     // we support only one mov type
+                mov.mod != register_mode or // ane only register mode
+                mov.d != 0) { // d == 0 means that the source register is in src field
+                              // no idea what happens if d == 1
+              break;
+            }
 
             // found instruction so move the bytes
             bytes_read += @sizeOf(MOVRegToReg);
 
             // output parsed instruction
             try output_writer.print("mov {s}, {s}\n", .{
-                parseReg(mov.reg_dest, mov.w),
-                parseReg(mov.reg_src, mov.w) });
+                parseReg(mov.rm, mov.w),
+                parseReg(mov.reg, mov.w) });
         }
 
         return bytes_read;
     }
 };
 
-test "simple test" {
-    var list = std.ArrayList(i32).init(std.testing.allocator);
-    defer list.deinit(); // try commenting this out and see if zig detects the memory leak!
-    try list.append(42);
-    try std.testing.expectEqual(@as(i32, 42), list.pop());
+test "MOV test" {
+    // TODO(agabrys): write test for mov
 }
