@@ -93,9 +93,6 @@ const Parsers = struct { // this struct is used only as a namespace
             rm: u3, reg: u3, mod: u2,
         };
 
-        const mov_type = 0b100010;
-        const register_mode = 0b11;
-
         var bytes_read: usize = 0;
         while (true) {
             // do we have enough bytes
@@ -108,10 +105,10 @@ const Parsers = struct { // this struct is used only as a namespace
             //std.debug.print("MOV: {}\n", .{mov});
 
             // validate
-            if (mov.type != mov_type or     // we support only one mov type
-                mov.mod != register_mode or // ane only register mode
-                mov.d != 0) { // d == 0 means that the source register is in src field
-                              // no idea what happens if d == 1
+            if (mov.type != 0b100010 or  // we support only one mov type
+                mov.mod  != 0b11 or      // ane only register mode
+                mov.d    != 0) {         // d == 0 means that the source register
+                                         // is in src field, no idea what happens if d == 1
               break;
             }
 
