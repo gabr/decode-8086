@@ -33,8 +33,7 @@ pub fn main() !void {
     defer asm_file.close();
 
     const asm_file_content = try asm_file.readToEndAlloc(allocator, math.maxInt(usize));
-    std.debug.print("bytes to decode ({}): {x}\n", .{asm_file_content.len, std.fmt.fmtSliceHexLower(asm_file_content)});
-
+    //std.debug.print("bytes to decode ({}): {x}\n", .{asm_file_content.len, std.fmt.fmtSliceHexLower(asm_file_content)});
 
     const stdout_file = std.io.getStdOut().writer();
     var bw = std.io.bufferedWriter(stdout_file);
@@ -71,16 +70,16 @@ fn decode8086(bytes: []u8, output_writer: anytype) !void {
 /// and will not search past first byte and does not skip any bytes.
 /// Writes parsed instructions to output_writer and returns parsed bytes count.
 const Parsers = struct { // this struct is used only as a namespace
-    fn writeReg(reg: u3, w: u1, output_writer: anytype) !void {
-        try switch(reg) {
-            0b000 => output_writer.writeAll(if (w == 0) "al" else "ax"),
-            0b001 => output_writer.writeAll(if (w == 0) "cl" else "cx"),
-            0b010 => output_writer.writeAll(if (w == 0) "dl" else "dx"),
-            0b011 => output_writer.writeAll(if (w == 0) "bl" else "bx"),
-            0b100 => output_writer.writeAll(if (w == 0) "ah" else "sp"),
-            0b101 => output_writer.writeAll(if (w == 0) "ch" else "bp"),
-            0b110 => output_writer.writeAll(if (w == 0) "dh" else "si"),
-            0b111 => output_writer.writeAll(if (w == 0) "bh" else "di"),
+    fn parseReg(reg: u3, w: u1) ![]const u8 {
+        return switch(reg) {
+            0b000 => if (w == 0) "al" else "ax",
+            0b001 => if (w == 0) "cl" else "cx",
+            0b010 => if (w == 0) "dl" else "dx",
+            0b011 => if (w == 0) "bl" else "bx",
+            0b100 => if (w == 0) "ah" else "sp",
+            0b101 => if (w == 0) "ch" else "bp",
+            0b110 => if (w == 0) "dh" else "si",
+            0b111 => if (w == 0) "bh" else "di",
         };
     }
 
@@ -96,20 +95,23 @@ const Parsers = struct { // this struct is used only as a namespace
 
         var bytes_read: usize = 0;
         while (true) {
+            // do we have enough bytes
             if (bytes.len + bytes_read < @sizeOf(MOVRegToReg)) break;
 
+            // cast to struct
             const mov = @ptrCast(*align(1) const MOVRegToReg, bytes.ptr + bytes_read).*;
             //std.debug.print("MOV: {}\n", .{mov});
 
+            // validate
             if (mov.type != mov_type or mov.mod != register_mode) break;
 
+            // found instruction so move the bytes
             bytes_read += @sizeOf(MOVRegToReg);
-            try output_writer.writeAll("mov ");
-            try writeReg(mov.reg_dest, mov.w, output_writer);
-            try output_writer.writeAll(", ");
-            try writeReg(mov.reg_src, mov.w, output_writer);
-            try output_writer.writeAll("\n");
-            break;
+
+            // output parsed instruction
+            try output_writer.print("mov {s}, {s}\n", .{
+                try parseReg(mov.reg_dest, mov.w),
+                try parseReg(mov.reg_src, mov.w) });
         }
 
         return bytes_read;
