@@ -50,11 +50,34 @@ pub fn main() !void {
     try bw.flush();
 }
 
-/// Decodes 8086 instructios and writes ASM representation to given output stream
-fn decode8086(bytes: []u8, outputWriter: anytype) !void {
-    try outputWriter.writeAll("bits 16\n\n");
-    _ = bytes;
+/// Decodes 8086 instructions and writes ASM representation to given output writer
+fn decode8086(bytes: []u8, output_writer: anytype) !void {
+    try output_writer.writeAll("bits 16\n\n");
+
+    var bytes_read: usize = 0;
+    while (bytes_read < bytes.len) {
+        const start_bytes_read = bytes_read;
+
+        bytes_read += try Parsers.MOV(bytes[bytes_read..], output_writer);
+
+        // if no bytes were consumed we have an unknown instruction
+        if (bytes_read <= start_bytes_read)
+            return error.UnknownInstruction;
+    }
 }
+
+/// Each parser parses as many instructions after each other as possible.
+/// Assumes that the first instruction starts at the beginning of given bytes
+/// and will not search past first byte.
+/// Writes parsed instructions to output_writer and returns parsed bytes count.
+const Parsers = struct { // this struct is used only as a namespace
+    pub fn MOV(bytes: []u8, output_writer: anytype) !usize {
+        // 1000 1001 1101 1001 -> mov cx, bx
+        _ = bytes;
+        _ = output_writer;
+        return 0;
+    }
+};
 
 test "simple test" {
     var list = std.ArrayList(i32).init(std.testing.allocator);
