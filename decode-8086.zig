@@ -70,7 +70,7 @@ fn decode8086(bytes: []u8, output_writer: anytype) !void {
 /// and will not search past first byte and does not skip any bytes.
 /// Writes parsed instructions to output_writer and returns parsed bytes count.
 const Parsers = struct { // this struct is used only as a namespace
-    fn parseReg(reg: u3, w: u1) ![]const u8 {
+    fn parseReg(reg: u3, w: u1) []const u8 {
         return switch(reg) {
             0b000 => if (w == 0) "al" else "ax",
             0b001 => if (w == 0) "cl" else "cx",
@@ -110,8 +110,8 @@ const Parsers = struct { // this struct is used only as a namespace
 
             // output parsed instruction
             try output_writer.print("mov {s}, {s}\n", .{
-                try parseReg(mov.reg_dest, mov.w),
-                try parseReg(mov.reg_src, mov.w) });
+                parseReg(mov.reg_dest, mov.w),
+                parseReg(mov.reg_src, mov.w) });
         }
 
         return bytes_read;
