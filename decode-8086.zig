@@ -68,14 +68,51 @@ fn decode8086(bytes: []u8, output_writer: anytype) !void {
 
 /// Each parser parses as many instructions after each other as possible.
 /// Assumes that the first instruction starts at the beginning of given bytes
-/// and will not search past first byte.
+/// and will not search past first byte and does not skip any bytes.
 /// Writes parsed instructions to output_writer and returns parsed bytes count.
 const Parsers = struct { // this struct is used only as a namespace
+    fn writeReg(reg: u3, w: u1, output_writer: anytype) !void {
+        try switch(reg) {
+            0b000 => output_writer.writeAll(if (w == 0) "al" else "ax"),
+            0b001 => output_writer.writeAll(if (w == 0) "cl" else "cx"),
+            0b010 => output_writer.writeAll(if (w == 0) "dl" else "dx"),
+            0b011 => output_writer.writeAll(if (w == 0) "bl" else "bx"),
+            0b100 => output_writer.writeAll(if (w == 0) "ah" else "sp"),
+            0b101 => output_writer.writeAll(if (w == 0) "ch" else "bp"),
+            0b110 => output_writer.writeAll(if (w == 0) "dh" else "si"),
+            0b111 => output_writer.writeAll(if (w == 0) "bh" else "di"),
+        };
+    }
+
     pub fn MOV(bytes: []u8, output_writer: anytype) !usize {
         // 1000 1001 1101 1001 -> mov cx, bx
-        _ = bytes;
-        _ = output_writer;
-        return 0;
+        const MOVRegToReg = packed struct {
+            w: u1, d: u1, type: u6,
+            reg_dest: u3, reg_src: u3, mod: u2,
+        };
+
+        const mov_type = 0b100010;
+        const register_mode = 0b11;
+
+        var bytes_read: usize = 0;
+        while (true) {
+            if (bytes.len + bytes_read < @sizeOf(MOVRegToReg)) break;
+
+            const mov = @ptrCast(*align(1) const MOVRegToReg, bytes.ptr + bytes_read).*;
+            //std.debug.print("MOV: {}\n", .{mov});
+
+            if (mov.type != mov_type or mov.mod != register_mode) break;
+
+            bytes_read += @sizeOf(MOVRegToReg);
+            try output_writer.writeAll("mov ");
+            try writeReg(mov.reg_dest, mov.w, output_writer);
+            try output_writer.writeAll(", ");
+            try writeReg(mov.reg_src, mov.w, output_writer);
+            try output_writer.writeAll("\n");
+            break;
+        }
+
+        return bytes_read;
     }
 };
 
