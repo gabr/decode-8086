@@ -1,4 +1,5 @@
 decode-8086
+*.s
 *.o
 *.exe
 *.exe.obj

@@ -19,21 +19,21 @@ pub fn main() !void {
         return;
     }
 
-    const asm_file_path = args[1];
-    std.debug.print("decoding file: {s}\n", .{asm_file_path});
+    const file_path = args[1];
+    std.debug.print("decoding file: {s}\n", .{file_path});
 
-    if (mem.endsWith(u8, fs.path.extension(asm_file_path), ".asm")) {
+    if (mem.endsWith(u8, fs.path.extension(file_path), ".asm")) {
         std.debug.print("Expected binary file but got an .asm one!\n", .{});
         return;
     }
 
     // open file
-    var asm_file_absolute_path = try fs.path.resolve(allocator, &[_][]const u8{asm_file_path});
-    const asm_file = try fs.openFileAbsolute(asm_file_absolute_path, .{});
-    defer asm_file.close();
+    var file_absolute_path = try fs.path.resolve(allocator, &[_][]const u8{file_path});
+    const file = try fs.openFileAbsolute(file_absolute_path, .{});
+    defer file.close();
 
-    const asm_file_content = try asm_file.readToEndAlloc(allocator, math.maxInt(usize));
-    //std.debug.print("bytes to decode ({}): {x}\n", .{asm_file_content.len, std.fmt.fmtSliceHexLower(asm_file_content)});
+    const file_content = try file.readToEndAlloc(allocator, math.maxInt(usize));
+    //std.debug.print("bytes to decode ({}): {x}\n", .{file_content.len, std.fmt.fmtSliceHexLower(file_content)});
 
     // create output writer - we are writing to standard output
     const stdout_file = std.io.getStdOut().writer();
@@ -41,10 +41,10 @@ pub fn main() !void {
     const stdout = bw.writer();
 
     // start by writting filename comment
-    try stdout.print("; {s}\n\n", .{asm_file_path});
+    try stdout.print("; {s}\n\n", .{file_path});
 
     // then decode the binary file into asm
-    try decode8086(asm_file_content, stdout);
+    try decode8086(file_content, stdout);
 
     // and flush the buffered output
     try bw.flush();
@@ -74,16 +74,12 @@ fn decode8086(bytes: []u8, output_writer: anytype) !void {
 const Parsers = struct { // this struct is used only as a namespace
     // converts reg and w values to reg string representation
     fn parseReg(reg: u3, w: u1) []const u8 {
-        return switch(reg) {
-            0b000 => if (w == 0) "al" else "ax",
-            0b001 => if (w == 0) "cl" else "cx",
-            0b010 => if (w == 0) "dl" else "dx",
-            0b011 => if (w == 0) "bl" else "bx",
-            0b100 => if (w == 0) "ah" else "sp",
-            0b101 => if (w == 0) "ch" else "bp",
-            0b110 => if (w == 0) "dh" else "si",
-            0b111 => if (w == 0) "bh" else "di",
+        const regs = &[_][]const []const u8 {
+            &[_][]const u8{ "al", "cl", "dl", "bl", "ah", "ch", "dh", "bh", },
+            &[_][]const u8{ "ax", "cx", "dx", "bx", "sp", "bp", "si", "di", },
         };
+
+        return regs[w][reg];
     }
 
     pub fn MOV(bytes: []u8, output_writer: anytype) !usize {
@@ -96,7 +92,7 @@ const Parsers = struct { // this struct is used only as a namespace
         var bytes_read: usize = 0;
         while (true) {
             // do we have enough bytes
-            if (bytes.len + bytes_read < @sizeOf(MOVRegToReg)) {
+            if (bytes.len - bytes_read < @sizeOf(MOVRegToReg)) {
                 break;
             }
 
