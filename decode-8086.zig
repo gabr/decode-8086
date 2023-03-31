@@ -15,16 +15,14 @@ pub fn main() !void {
     defer process.argsFree(allocator, args);
 
     if (args.len < 2) {
-        std.debug.print("Expected path to binary file\n", .{});
-        return;
+        return error.MissingPath;
     }
 
     const file_path = args[1];
     std.debug.print("decoding file: {s}\n", .{file_path});
 
     if (mem.endsWith(u8, fs.path.extension(file_path), ".asm")) {
-        std.debug.print("Expected binary file but got an .asm one!\n", .{});
-        return;
+        return error.UnexpectedAsmExtension;
     }
 
     // open file
@@ -80,6 +78,11 @@ const Parsers = struct { // this struct is used only as a namespace
         };
 
         return regs[w][reg];
+
+        // "Pack what ye can; give index back"
+        //const regs: []const u8 = "alcldlblahchdhbhaxcxdxbxspbpsidi";
+        //const index = ((8*@as(u8, w))+@as(u8, reg))*2;
+        //return regs[index..index+2];
     }
 
     pub fn MOV(bytes: []u8, output_writer: anytype) !usize {
