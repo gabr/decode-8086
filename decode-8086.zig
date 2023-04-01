@@ -256,7 +256,7 @@ const Parsers = struct { // this struct is used only as a namespace
     }
 };
 
-test "MOV_RegMemToFromReg" {
+test "MOV" {
     const expected_output =
         \\mov cx, bx
         \\mov ch, ah
@@ -269,28 +269,73 @@ test "MOV_RegMemToFromReg" {
         \\mov bx, si
         \\mov sp, di
         \\mov bp, ax
+        \\mov si, bx
+        \\mov dh, al
+        \\mov cl, 12
+        \\mov ch, -12
+        \\mov cx, 12
+        \\mov cx, -12
+        \\mov dx, 3948
+        \\mov dx, -3948
+        \\mov al, [bx + si]
+        \\mov bx, [bp + di]
+        \\mov dx, [bp]
+        \\mov ah, [bx + si + 4]
+        \\mov al, [bx + si + 4999]
+        \\mov [bx + di], cx
+        \\mov [bp + si], cl
+        \\mov [bp], ch
         \\
     ;
 
     const bytes = [_]u8 {
-        0x89, 0xD9, // mov cx, bx
-        0x88, 0xE5, // mov ch, ah
-        0x89, 0xDA, // mov dx, bx
-        0x89, 0xDE, // mov si, bx
-        0x89, 0xFB, // mov bx, di
-        0x88, 0xC8, // mov al, cl
-        0x88, 0xED, // mov ch, ch
-        0x89, 0xC3, // mov bx, ax
-        0x89, 0xF3, // mov bx, si
-        0x89, 0xFC, // mov sp, di
-        0x89, 0xC5, // mov bp, ax
+        0x89, 0xD9,              // mov cx, bx
+        0x88, 0xE5,              // mov ch, ah
+        0x89, 0xDA,              // mov dx, bx
+        0x89, 0xDE,              // mov si, bx
+        0x89, 0xFB,              // mov bx, di
+        0x88, 0xC8,              // mov al, cl
+        0x88, 0xED,              // mov ch, ch
+        0x89, 0xC3,              // mov bx, ax
+        0x89, 0xF3,              // mov bx, si
+        0x89, 0xFC,              // mov sp, di
+        0x89, 0xC5,              // mov bp, ax
+        0x89, 0xDE,              // mov si, bx
+        0x88, 0xC6,              // mov dh, al
+        0xB1, 0x0C,              // mov cl, 12
+        0xB5, 0xF4,              // mov ch, -12
+        0xB9, 0x0C,              // mov cx, 12
+        0x00, 0xB9,              // mov cx, -12
+        0xF4, 0xFF, 0xBA, 0x6C,  // mov dx, 3948
+        0x0F, 0xBA, 0x94, 0xF0,  // mov dx, -3948
+        0x8A, 0x00,              // mov al, [bx + si]
+        0x8B, 0x1B,              // mov bx, [bp + di]
+        0x8B, 0x56, 0x00,        // mov dx, [bp]
+        0x8A, 0x60, 0x04,        // mov ah, [bx + si + 4]
+        0x8A, 0x80, 0x87, 0x13,  // mov al, [bx + si + 4999]
+        0x89, 0x09,              // mov [bx + di], cx
+        0x88, 0x0A,              // mov [bp + si], cl
+        0x88, 0x6E, 0x00         // mov [bp], ch
     };
 
     var output_buffer: [expected_output.len]u8 = undefined;
     var fbs = io.fixedBufferStream(&output_buffer);
     var output_writer = fbs.writer();
 
-    const bytes_read = try Parsers.MOV_RegMemToFromReg(&bytes, output_writer);
+    var bytes_read: usize = 0;
+    while (bytes_read < bytes.len) {
+        const start_bytes_read = bytes_read;
+
+        bytes_read += try Parsers.MOV_RegMemToFromReg(bytes[bytes_read..], output_writer);
+        bytes_read += try Parsers.MOV_ImidiateToReg  (bytes[bytes_read..], output_writer);
+
+        // if no bytes were consumed we have an unknown instruction
+        if (bytes_read <= start_bytes_read) {
+            return error.UnknownInstruction;
+        }
+    }
+
+    debug.print("output:\n{s}\n", .{fbs.getWritten()});
 
     try testing.expectEqual(bytes.len, bytes_read);
     try testing.expectEqualSlices(u8, expected_output[0..], output_buffer[0..]);
