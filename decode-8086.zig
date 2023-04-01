@@ -1,14 +1,18 @@
 const std     = @import("std");
+const io      = std.io;
 const fs      = std.fs;
+const fmt     = std.fmt;
 const mem     = std.mem;
+const meta    = std.meta;
 const math    = std.math;
-const process = std.process;
+const heap    = std.heap;
 const debug   = std.debug;
+const process = std.process;
 const testing = std.testing;
 
 pub fn main() !void {
     // just get memory in pages and free all at the end
-    var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
+    var arena = heap.ArenaAllocator.init(heap.page_allocator);
     defer arena.deinit();
     const allocator = arena.allocator();
 
@@ -33,11 +37,11 @@ pub fn main() !void {
     defer file.close();
 
     const file_content = try file.readToEndAlloc(allocator, math.maxInt(usize));
-    //debug.print("bytes to decode ({}): {x}\n", .{file_content.len, std.fmt.fmtSliceHexLower(file_content)});
+    //debug.print("bytes to decode ({}): {x}\n", .{file_content.len, fmt.fmtSliceHexLower(file_content)});
 
     // create output writer - we are writing to standard output
-    const stdout_file = std.io.getStdOut().writer();
-    var bw = std.io.bufferedWriter(stdout_file);
+    const stdout_file = io.getStdOut().writer();
+    var bw = io.bufferedWriter(stdout_file);
     const stdout = bw.writer();
 
     // start by writting filename comment
@@ -78,6 +82,31 @@ const Parsers = struct { // this struct is used only as a namespace
         &[_][]const u8{ "ax", "cx", "dx", "bx", "sp", "bp", "si", "di", },
     };
 
+    /// effective address calculation where index is the R/M field
+    const rms = &[_][]const u8 { "bx + si", "bx + di", "bp + si", "bp + di", "si", "di", "bp", "bx" };
+
+    /// Helper method for outputing MOV instructions which can have reversed
+    /// source with destination based on 'd' field.
+    fn outputMOV(
+        d: u1,
+        comptime dest_format: []const u8, dest_data: anytype,
+        comptime  src_format: []const u8,  src_data: anytype,
+        output_writer: anytype
+    ) !void {
+        try output_writer.writeAll("mov ");
+        if (d == 0) {
+            try output_writer.print(dest_format, dest_data);
+            try output_writer.writeAll(", ");
+            try output_writer.print(src_format, src_data);
+        } else {
+            try output_writer.print(src_format, src_data);
+            try output_writer.writeAll(", ");
+            try output_writer.print(dest_format, dest_data);
+        }
+
+        try output_writer.writeAll("\n");
+    }
+
     /// MOV Register/memory to/from register
     pub fn MOV_RegMemToFromReg(bytes: []const u8, output_writer: anytype) !usize {
         const MOV = packed struct {
@@ -85,15 +114,15 @@ const Parsers = struct { // this struct is used only as a namespace
             rm: u3, reg: u3, mod: u2,
         };
 
-        var bytes_read: usize = 0;
+        var work_buffer = bytes;
         while (true) {
             // do we have enough bytes
-            if (bytes.len - bytes_read < @sizeOf(MOV)) {
+            if (work_buffer.len < @sizeOf(MOV)) {
                 break;
             }
 
             // cast to struct
-            const mov = @ptrCast(*align(1) const MOV, bytes.ptr + bytes_read).*;
+            const mov = @ptrCast(*align(1) const MOV, work_buffer.ptr).*;
             //debug.print("MOV: {}\n", .{mov});
 
             // validate type
@@ -102,27 +131,91 @@ const Parsers = struct { // this struct is used only as a namespace
             }
 
             switch (mov.mod) {
-                // register mode
-                0b11 => {
-                    // found instruction so move the bytes
-                    bytes_read += @sizeOf(MOV);
+                // memory mode
+                0b00 => {
+                    // 16-bit direct address
+                    if (mov.rm == 0b110) {
+                        // do we have enough bytes
+                        if (work_buffer.len < @sizeOf(MOV) + 2) {
+                            debug.print(
+                                "found MOV with mod: 00 and R/M: 110 but not enough bytes for 16-bit direct address\n" ++
+                                "MOV: {}\n" ++
+                                "bytes left ({}): [{x}]\n",
+                                .{mov, work_buffer.len, fmt.fmtSliceHexLower(work_buffer)});
+                            return error.NotEnoughBytes;
+                        }
 
-                    // output parsed instruction
-                    if (mov.d == 0) { // source is in reg field
-                        try output_writer.print("mov {s}, {s}\n", .{
-                            regs[mov.w][mov.rm],
-                            regs[mov.w][mov.reg] });
+                        work_buffer = work_buffer[@sizeOf(MOV)..];
+
+                        // "direct address" from two additional bytes
+                        const direct_address = @ptrCast(*align(1) const u16, work_buffer.ptr).*;
+                        work_buffer = work_buffer[@sizeOf(u16)..];
+
+                        try outputMOV( mov.d,
+                            "[{d}]", .{direct_address},
+                             "{s}",  .{regs[mov.w][mov.reg]},
+                            output_writer);
                     } else {
-                        try output_writer.print("mov {s}, {s}\n", .{
-                            regs[mov.w][mov.reg],
-                            regs[mov.w][mov.rm] });
+                        work_buffer = work_buffer[@sizeOf(MOV)..];
+                        try outputMOV(
+                            mov.d,
+                            "[{s}]", .{rms[mov.rm]},
+                             "{s}",  .{regs[mov.w][mov.reg]},
+                            output_writer);
                     }
                 },
-                else => return error.UnsupportedMod,
+
+                // memory mode with 8-bit or 16-bit displacement
+                0b01, 0b10 => {
+                    // do we have enough bytes
+                    if (work_buffer.len < @sizeOf(MOV) + mov.mod) {
+                        debug.print(
+                            "found MOV with mod: 01 but not enough bytes for {d}-bit displacement\n" ++
+                            "MOV: {}\n" ++
+                            "bytes left ({}): [{x}]\n",
+                            .{@as(u8, mov.mod)*8, mov, work_buffer.len, fmt.fmtSliceHexLower(work_buffer)});
+                        return error.NotEnoughBytes;
+                    }
+
+                    work_buffer = work_buffer[@sizeOf(MOV)..];
+
+                    // displacement from additional bytes
+                    var displacement: u16 = @ptrCast(*align(1) const u8, work_buffer.ptr).*; // take the first byte
+                    work_buffer = work_buffer[1..];
+
+                    // if mod 2 take the second byte
+                    if (mov.mod == 2) {
+                        displacement <<= 8;
+                        displacement |= @ptrCast(*align(1) const u8, work_buffer.ptr).*; // take the second byte
+                        work_buffer = work_buffer[1..];
+                    }
+
+                    if (displacement == 0) {
+                        try outputMOV( mov.d,
+                            "[{d}]", .{rms[mov.rm]},
+                             "{s}",  .{regs[mov.w][mov.reg]},
+                            output_writer);
+                    } else {
+                        try outputMOV( mov.d,
+                            "[{d} + {d}]", .{rms[mov.rm], displacement},
+                             "{s}",        .{regs[mov.w][mov.reg]},
+                            output_writer);
+                    }
+                },
+
+                // register mode
+                0b11 => {
+                    work_buffer = work_buffer[@sizeOf(MOV)..];
+                    try outputMOV(
+                        mov.d,
+                        "{s}", .{regs[mov.w][mov.rm]},
+                        "{s}", .{regs[mov.w][mov.reg]},
+                        output_writer);
+                },
             }
         }
 
-        return bytes_read;
+        return bytes.len - work_buffer.len;
     }
 };
 
@@ -157,7 +250,7 @@ test "MOV_RegMemToFromReg" {
     };
 
     var output_buffer: [expected_output.len]u8 = undefined;
-    var fbs = std.io.fixedBufferStream(&output_buffer);
+    var fbs = io.fixedBufferStream(&output_buffer);
     var output_writer = fbs.writer();
 
     const bytes_read = try Parsers.MOV_RegMemToFromReg(&bytes, output_writer);
