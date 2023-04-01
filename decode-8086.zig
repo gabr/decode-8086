@@ -67,6 +67,8 @@ fn decode8086(bytes: []u8, output_writer: anytype) !void {
         const start_bytes_read = bytes_read;
 
         bytes_read += try Parsers.MOV_RegMemToFromReg(bytes[bytes_read..], output_writer);
+        bytes_read += try Parsers.MOV_ImidiateToReg  (bytes[bytes_read..], output_writer);
+
 
         // if no bytes were consumed we have an unknown instruction
         if (bytes_read <= start_bytes_read) {
@@ -129,7 +131,7 @@ const Parsers = struct { // this struct is used only as a namespace
             //debug.print("MOV: {}\n", .{mov});
 
             // validate type
-            if (mov.type != 0b100010) { // register/memory to/from register MOV
+            if (mov.type != 0b100010) {
               break;
             }
 
@@ -211,6 +213,43 @@ const Parsers = struct { // this struct is used only as a namespace
                         output_writer);
                 },
             }
+        }
+
+        return bytes.len - work_buffer.len;
+    }
+
+    /// MOV Imidiate to register
+    pub fn MOV_ImidiateToReg(bytes: []const u8, output_writer: anytype) !usize {
+        const MOV = packed struct {
+            reg: u3, w: u1, type: u4,
+        };
+
+        var work_buffer = bytes;
+        while (true) {
+            // do we have enough bytes
+            if (work_buffer.len < @sizeOf(MOV)) {
+                break;
+            }
+
+            // cast to struct
+            const mov = @ptrCast(*align(1) const MOV, work_buffer.ptr).*;
+            //debug.print("MOV: {}\n", .{mov});
+
+            // validate type
+            if (mov.type != 0b1011) {
+              break;
+            }
+
+            // move by the header size
+            work_buffer = work_buffer[@sizeOf(MOV)..];
+
+            const data = if (mov.w == 0)   // \/ we are signed this time
+                     @ptrCast(*align(1) const  i8, work_buffer.ptr).*
+                else @ptrCast(*align(1) const i16, work_buffer.ptr).*;
+            // move by the data size - at least 1 byte, if mov.w is 1 then we have two bytes
+            work_buffer = work_buffer[@as(u8, mov.w)+1..];
+
+            try outputMOV( 0, "{s}", .{regs[mov.w][mov.reg]}, "{d}", .{data}, output_writer);
         }
 
         return bytes.len - work_buffer.len;
