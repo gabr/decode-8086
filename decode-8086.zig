@@ -171,7 +171,7 @@ const Parsers = struct { // this struct is used only as a namespace
                 // memory mode with 8-bit or 16-bit displacement
                 0b01, 0b10 => {
                     // do we have enough bytes
-                    const additional_bytes = @as(u8, mov.mod);
+                    const additional_bytes: u8 = mov.mod; // have to cast to not overflow in the add below
                     if (work_buffer.len < @sizeOf(MOV) + additional_bytes) {
                         debug.print(
                             "found MOV with mod: 01 but not enough bytes for {d}-bit displacement\n" ++
@@ -180,17 +180,13 @@ const Parsers = struct { // this struct is used only as a namespace
                             .{additional_bytes*8, mov, work_buffer.len, fmt.fmtSliceHexLower(work_buffer)});
                         return error.NotEnoughBytes;
                     }
-
                     work_buffer = work_buffer[@sizeOf(MOV)..];
 
                     // displacement from additional bytes
-                    var displacement: u16 = @ptrCast(*align(1) const u8, work_buffer.ptr).*; // take the first byte
-                    work_buffer = work_buffer[1..];
-
-                    if (additional_bytes == 2) {
-                        displacement |= @as(u16, @ptrCast(*align(1) const u8, work_buffer.ptr).*) << 8; // take the second byte
-                        work_buffer = work_buffer[1..];
-                    }
+                    var displacement: u16 = if (mov.mod == 1)
+                             @ptrCast(*align(1) const  u8, work_buffer.ptr).*
+                        else @ptrCast(*align(1) const u16, work_buffer.ptr).*;
+                    work_buffer = work_buffer[mov.mod..];
 
                     if (displacement == 0) {
                         try outputMOV( mov.d,
