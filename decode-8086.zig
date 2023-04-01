@@ -66,8 +66,9 @@ fn decode8086(bytes: []u8, output_writer: anytype) !void {
     while (bytes_read < bytes.len) {
         const start_bytes_read = bytes_read;
 
-        bytes_read += try Parsers.MOV_RegMemToFromReg(bytes[bytes_read..], output_writer);
-        bytes_read += try Parsers.MOV_ImidiateToReg  (bytes[bytes_read..], output_writer);
+        bytes_read += try Parsers.MOV_RegMemToFromReg  (bytes[bytes_read..], output_writer);
+        bytes_read += try Parsers.MOV_ImidiateToRegMem (bytes[bytes_read..], output_writer);
+        bytes_read += try Parsers.MOV_ImidiateToReg    (bytes[bytes_read..], output_writer);
 
 
         // if no bytes were consumed we have an unknown instruction
@@ -134,6 +135,7 @@ const Parsers = struct { // this struct is used only as a namespace
         if (mov.type != 0b100010) {
           return 0;
         }
+        work_buffer = work_buffer[@sizeOf(MOV)..];
 
         switch (mov.mod) {
             // memory mode
@@ -141,7 +143,7 @@ const Parsers = struct { // this struct is used only as a namespace
                 // 16-bit direct address
                 if (mov.rm == 0b110) {
                     // do we have enough bytes
-                    if (work_buffer.len < @sizeOf(MOV) + 2) {
+                    if (work_buffer.len < 2) {
                         debug.print(
                             "found MOV with mod: 00 and R/M: 110 but not enough bytes for 16-bit direct address\n" ++
                             "MOV: {}\n" ++
@@ -149,8 +151,6 @@ const Parsers = struct { // this struct is used only as a namespace
                             .{mov, work_buffer.len, fmt.fmtSliceHexLower(work_buffer)});
                         return error.NotEnoughBytes;
                     }
-
-                    work_buffer = work_buffer[@sizeOf(MOV)..];
 
                     // "direct address" from two additional bytes
                     const direct_address = @ptrCast(*align(1) const u16, work_buffer.ptr).*;
@@ -161,7 +161,6 @@ const Parsers = struct { // this struct is used only as a namespace
                          "{s}",  .{regs[mov.w][mov.reg]},
                         output_writer);
                 } else {
-                    work_buffer = work_buffer[@sizeOf(MOV)..];
                     try outputMOV(
                         mov.d,
                         "[{s}]", .{rms[mov.rm]},
@@ -174,7 +173,7 @@ const Parsers = struct { // this struct is used only as a namespace
             0b01, 0b10 => {
                 // do we have enough bytes
                 const additional_bytes: u8 = mov.mod; // have to cast to not overflow in the add below
-                if (work_buffer.len < @sizeOf(MOV) + additional_bytes) {
+                if (work_buffer.len < additional_bytes) {
                     debug.print(
                         "found MOV with mod: 01 but not enough bytes for {d}-bit displacement\n" ++
                         "MOV: {}\n" ++
@@ -182,7 +181,6 @@ const Parsers = struct { // this struct is used only as a namespace
                         .{additional_bytes*8, mov, work_buffer.len, fmt.fmtSliceHexLower(work_buffer)});
                     return error.NotEnoughBytes;
                 }
-                work_buffer = work_buffer[@sizeOf(MOV)..];
 
                 // displacement from additional bytes
                 var displacement: u16 = if (mov.mod == 1)
@@ -205,12 +203,55 @@ const Parsers = struct { // this struct is used only as a namespace
 
             // register mode
             0b11 => {
-                work_buffer = work_buffer[@sizeOf(MOV)..];
                 try outputMOV(
                     mov.d,
                     "{s}", .{regs[mov.w][mov.rm]},
                     "{s}", .{regs[mov.w][mov.reg]},
                     output_writer);
+            },
+        }
+
+        return bytes.len - work_buffer.len;
+    }
+
+    /// MOV Imidiate to register/memory
+    pub fn MOV_ImidiateToRegMem(bytes: []const u8, output_writer: anytype) !usize {
+        _ = output_writer;
+        const MOV = packed struct {
+            w: u1, type: u7,
+            rm: u3, unused: u3, mod: u2,
+            displacement: u16,
+        };
+
+        var work_buffer = bytes;
+
+        // do we have enough bytes
+        if (work_buffer.len < @sizeOf(MOV)) {
+            return 0;
+        }
+
+        // cast to struct
+        const mov = @ptrCast(*align(1) const MOV, work_buffer.ptr).*;
+        //debug.print("MOV: {}\n", .{mov});
+
+        // validate type
+        if (mov.type != 0b1100011) {
+          return 0;
+        }
+        work_buffer = work_buffer[@sizeOf(MOV)..];
+
+        // TODO(agabrys)
+        switch (mov.mod) {
+            // memory mode
+            0b00 => {
+            },
+
+            // memory mode with 8-bit or 16-bit displacement
+            0b01, 0b10 => {
+            },
+
+            // register mode
+            0b11 => {
             },
         }
 
@@ -238,15 +279,19 @@ const Parsers = struct { // this struct is used only as a namespace
         if (mov.type != 0b1011) {
           return 0;
         }
-
-        // move by the header size
         work_buffer = work_buffer[@sizeOf(MOV)..];
+
+        // do we have enough bytes
+        const data_size: u8 = @as(u8, mov.w)+1;
+        if (work_buffer.len < data_size) {
+            return 0;
+        }
 
         const data = if (mov.w == 0)   // \/ we are signed this time
                  @ptrCast(*align(1) const  i8, work_buffer.ptr).*
             else @ptrCast(*align(1) const i16, work_buffer.ptr).*;
         // move by the data size - at least 1 byte, if mov.w is 1 then we have two bytes
-        work_buffer = work_buffer[@as(u8, mov.w)+1..];
+        work_buffer = work_buffer[data_size..];
 
         try outputMOV(0,
             "{s}", .{regs[mov.w][mov.reg]},
