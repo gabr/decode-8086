@@ -69,6 +69,8 @@ fn decode8086(bytes: []u8, output_writer: anytype) !void {
         bytes_read += try Parsers.MOV_RegMemToFromReg   (bytes[bytes_read..], output_writer);
         bytes_read += try Parsers.MOV_ImmediateToRegMem (bytes[bytes_read..], output_writer);
         bytes_read += try Parsers.MOV_ImmediateToReg    (bytes[bytes_read..], output_writer);
+        bytes_read += try Parsers.MOV_MemToAccumulator  (bytes[bytes_read..], output_writer);
+        bytes_read += try Parsers.MOV_AccumulatorToMem  (bytes[bytes_read..], output_writer);
 
 
         // if no bytes were consumed we have an unknown instruction
@@ -174,7 +176,7 @@ const Parsers = struct { // this struct is used only as a namespace
         mod: u2,
         rm:  u3,
         displacement: i16,
-        comptime value_format:        []const u8, value:               anytype,
+        comptime value_format:        []const u8, value_data:          anytype,
         comptime register_mode_format:[]const u8, register_mode_value: anytype,
         output_writer: anytype,
     ) !void {
@@ -188,12 +190,12 @@ const Parsers = struct { // this struct is used only as a namespace
 
                     try outputMOV( d,
                         "[{d}]",      .{direct_address},
-                        value_format, .{value},
+                        value_format, value_data,
                         output_writer );
                 } else {
                     try outputMOV( d,
                         "[{s}]",      .{rms[rm]},
-                        value_format, .{value},
+                        value_format, value_data,
                         output_writer );
                 }
             },
@@ -203,13 +205,20 @@ const Parsers = struct { // this struct is used only as a namespace
                 if (displacement == 0) {
                     try outputMOV( d,
                         "[{s}]",      .{rms[rm]},
-                        value_format, .{value},
+                        value_format, value_data,
                         output_writer );
                 } else {
-                    try outputMOV( d,
-                        "[{s} + {d}]", .{rms[rm], displacement},
-                        value_format,  .{value},
-                        output_writer );
+                    if (displacement < 0) {
+                        try outputMOV( d,
+                            "[{s} - {d}]", .{rms[rm], displacement*-1},
+                            value_format,  value_data,
+                            output_writer );
+                    } else {
+                        try outputMOV( d,
+                            "[{s} + {d}]", .{rms[rm], displacement},
+                            value_format,  value_data,
+                            output_writer );
+                    }
                 }
             },
 
@@ -217,7 +226,7 @@ const Parsers = struct { // this struct is used only as a namespace
             0b11 => {
                 try outputMOV( d,
                     register_mode_format, .{register_mode_value},
-                    value_format,         .{value},
+                    value_format,         value_data,
                     output_writer );
             },
         }
@@ -241,7 +250,7 @@ const Parsers = struct { // this struct is used only as a namespace
             mov.mod,
             mov.rm,
             displacement,
-            "{s}", regs[mov.w][mov.reg],
+            "{s}", .{regs[mov.w][mov.reg]},
             "{s}", regs[mov.w][mov.rm],
             output_writer,
         );
@@ -264,7 +273,7 @@ const Parsers = struct { // this struct is used only as a namespace
         // also would like to extract before the switch to have it in one place
         const displacement = try extractMOVDisplacement(&work_buffer, mov);
 
-         // have to cast to not overflow in the add below
+        // have to cast to not overflow in the add below
         const data_size: u8 = @as(u8, mov.w)+1;
         if (work_buffer.len < data_size) {
             debug.print(
@@ -279,13 +288,14 @@ const Parsers = struct { // this struct is used only as a namespace
                  @ptrCast(*align(1) const  i8, work_buffer.ptr).*
             else @ptrCast(*align(1) const i16, work_buffer.ptr).*;
         work_buffer = work_buffer[data_size..];
+        const data_prefix = if (mov.w == 0) "byte" else "word ";
 
         try outputMOVbasedOnMode(
             0,
             mov.mod,
             mov.rm,
             displacement,
-            "{d}", data,
+            "{s} {d}", .{data_prefix, data},
             "[{s}]", rms[mov.rm],
             output_writer,
         );
@@ -314,7 +324,6 @@ const Parsers = struct { // this struct is used only as a namespace
             );
             return error.NotEnoughBytes;
         }
-
         const data = if (mov.w == 0)   // \/ we are signed this time
                  @ptrCast(*align(1) const  i8, work_buffer.ptr).*
             else @ptrCast(*align(1) const i16, work_buffer.ptr).*;
@@ -324,6 +333,74 @@ const Parsers = struct { // this struct is used only as a namespace
         try outputMOV( 0,
             "{s}", .{regs[mov.w][mov.reg]},
             "{d}", .{data},
+            output_writer );
+
+        return bytes.len - work_buffer.len;
+    }
+
+    /// MOV Memory to accumulator
+    pub fn MOV_MemToAccumulator(bytes: []const u8, output_writer: anytype) !usize {
+        const MOV = packed struct {
+            w: u1, type: u7,
+        };
+
+        var work_buffer = bytes;
+        const mov = extractHeader(&work_buffer, MOV, 0b0_1010000)
+            orelse return 0;
+
+        // do we have enough bytes
+        const address_size: u8 = @as(u8, mov.w)+1;
+        if (work_buffer.len < address_size) {
+            debug.print(
+                "found memory to accumulator MOV but not enough bytes for {d}-bit address\n" ++
+                "MOV: {}\n" ++
+                "bytes left ({}): [{x}]\n",
+                .{address_size*8, mov, work_buffer.len, fmt.fmtSliceHexLower(work_buffer)}
+            );
+            return error.NotEnoughBytes;
+        }
+        const address = if (mov.w == 0)
+                 @ptrCast(*align(1) const  u8, work_buffer.ptr).*
+            else @ptrCast(*align(1) const u16, work_buffer.ptr).*;
+        work_buffer = work_buffer[address_size..];
+
+        try outputMOV( 0,
+             "ax",   .{},
+            "[{d}]", .{address},
+            output_writer );
+
+        return bytes.len - work_buffer.len;
+    }
+
+    // MOV Accumulator to memory
+    pub fn MOV_AccumulatorToMem(bytes: []const u8, output_writer: anytype) !usize {
+        const MOV = packed struct {
+            w: u1, type: u7,
+        };
+
+        var work_buffer = bytes;
+        const mov = extractHeader(&work_buffer, MOV, 0b0_1010001)
+            orelse return 0;
+
+        // do we have enough bytes
+        const address_size: u8 = @as(u8, mov.w)+1;
+        if (work_buffer.len < address_size) {
+            debug.print(
+                "found accumulator to memory MOV but not enough bytes for {d}-bit address\n" ++
+                "MOV: {}\n" ++
+                "bytes left ({}): [{x}]\n",
+                .{address_size*8, mov, work_buffer.len, fmt.fmtSliceHexLower(work_buffer)}
+            );
+            return error.NotEnoughBytes;
+        }
+        const address = if (mov.w == 0)
+                 @ptrCast(*align(1) const  u8, work_buffer.ptr).*
+            else @ptrCast(*align(1) const u16, work_buffer.ptr).*;
+        work_buffer = work_buffer[address_size..];
+
+        try outputMOV( 0,
+            "[{d}]", .{address},
+             "ax",   .{},
             output_writer );
 
         return bytes.len - work_buffer.len;
@@ -402,6 +479,7 @@ test "MOV" {
 
         bytes_read += try Parsers.MOV_RegMemToFromReg(bytes[bytes_read..], output_writer);
         bytes_read += try Parsers.MOV_ImmediateToReg  (bytes[bytes_read..], output_writer);
+        //TODO(agabrys): add rest of MOV instructions
 
         // if no bytes were consumed we have an unknown instruction
         if (bytes_read <= start_bytes_read) {
