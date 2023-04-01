@@ -69,9 +69,7 @@ fn decode8086(bytes: []u8, output_writer: anytype) !void {
         bytes_read += try Parsers.MOV_RegMemToFromReg   (bytes[bytes_read..], output_writer);
         bytes_read += try Parsers.MOV_ImmediateToRegMem (bytes[bytes_read..], output_writer);
         bytes_read += try Parsers.MOV_ImmediateToReg    (bytes[bytes_read..], output_writer);
-        bytes_read += try Parsers.MOV_MemToAccumulator  (bytes[bytes_read..], output_writer);
-        bytes_read += try Parsers.MOV_AccumulatorToMem  (bytes[bytes_read..], output_writer);
-
+        bytes_read += try Parsers.MOV_MemAccumulator    (bytes[bytes_read..], output_writer);
 
         // if no bytes were consumed we have an unknown instruction
         if (bytes_read <= start_bytes_read) {
@@ -338,15 +336,19 @@ const Parsers = struct { // this struct is used only as a namespace
         return bytes.len - work_buffer.len;
     }
 
-    /// MOV Memory to accumulator
-    pub fn MOV_MemToAccumulator(bytes: []const u8, output_writer: anytype) !usize {
+    /// MOV Memory to accumulator and Accumulator to Memory
+    /// Two accmulator instructions in one function.
+    /// The only difference is the order so the output will be
+    /// flipped around depending on the instruction type.
+    pub fn MOV_MemAccumulator(bytes: []const u8, output_writer: anytype) !usize {
         const MOV = packed struct {
             w: u1, type: u7,
         };
 
         var work_buffer = bytes;
         const mov = extractHeader(&work_buffer, MOV, 0b0_1010000)
-            orelse return 0;
+             orelse extractHeader(&work_buffer, MOV, 0b0_1010001)
+             orelse return 0;
 
         // do we have enough bytes
         const address_size: u8 = @as(u8, mov.w)+1;
@@ -364,43 +366,10 @@ const Parsers = struct { // this struct is used only as a namespace
             else @ptrCast(*align(1) const u16, work_buffer.ptr).*;
         work_buffer = work_buffer[address_size..];
 
-        try outputMOV( 0,
+        const flip: u1 = if (mov.type == 0b0_1010001) 1 else 0;
+        try outputMOV( flip,
              "ax",   .{},
             "[{d}]", .{address},
-            output_writer );
-
-        return bytes.len - work_buffer.len;
-    }
-
-    // MOV Accumulator to memory
-    pub fn MOV_AccumulatorToMem(bytes: []const u8, output_writer: anytype) !usize {
-        const MOV = packed struct {
-            w: u1, type: u7,
-        };
-
-        var work_buffer = bytes;
-        const mov = extractHeader(&work_buffer, MOV, 0b0_1010001)
-            orelse return 0;
-
-        // do we have enough bytes
-        const address_size: u8 = @as(u8, mov.w)+1;
-        if (work_buffer.len < address_size) {
-            debug.print(
-                "found accumulator to memory MOV but not enough bytes for {d}-bit address\n" ++
-                "MOV: {}\n" ++
-                "bytes left ({}): [{x}]\n",
-                .{address_size*8, mov, work_buffer.len, fmt.fmtSliceHexLower(work_buffer)}
-            );
-            return error.NotEnoughBytes;
-        }
-        const address = if (mov.w == 0)
-                 @ptrCast(*align(1) const  u8, work_buffer.ptr).*
-            else @ptrCast(*align(1) const u16, work_buffer.ptr).*;
-        work_buffer = work_buffer[address_size..];
-
-        try outputMOV( 0,
-            "[{d}]", .{address},
-             "ax",   .{},
             output_writer );
 
         return bytes.len - work_buffer.len;
