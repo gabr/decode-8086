@@ -3,6 +3,8 @@ const fs      = std.fs;
 const mem     = std.mem;
 const math    = std.math;
 const process = std.process;
+const debug   = std.debug;
+const testing = std.testing;
 
 pub fn main() !void {
     // just get memory in pages and free all at the end
@@ -19,7 +21,7 @@ pub fn main() !void {
     }
 
     const file_path = args[1];
-    std.debug.print("decoding file: {s}\n", .{file_path});
+    debug.print("decoding file: {s}\n", .{file_path});
 
     if (mem.endsWith(u8, fs.path.extension(file_path), ".asm")) {
         return error.UnexpectedAsmExtension;
@@ -31,7 +33,7 @@ pub fn main() !void {
     defer file.close();
 
     const file_content = try file.readToEndAlloc(allocator, math.maxInt(usize));
-    //std.debug.print("bytes to decode ({}): {x}\n", .{file_content.len, std.fmt.fmtSliceHexLower(file_content)});
+    //debug.print("bytes to decode ({}): {x}\n", .{file_content.len, std.fmt.fmtSliceHexLower(file_content)});
 
     // create output writer - we are writing to standard output
     const stdout_file = std.io.getStdOut().writer();
@@ -56,7 +58,7 @@ fn decode8086(bytes: []u8, output_writer: anytype) !void {
     while (bytes_read < bytes.len) {
         const start_bytes_read = bytes_read;
 
-        bytes_read += try Parsers.MOV(bytes[bytes_read..], output_writer);
+        bytes_read += try Parsers.MOV_RegMemToFromReg(bytes[bytes_read..], output_writer);
 
         // if no bytes were consumed we have an unknown instruction
         if (bytes_read <= start_bytes_read) {
@@ -70,24 +72,15 @@ fn decode8086(bytes: []u8, output_writer: anytype) !void {
 /// and will not search past first byte and does not skip any bytes.
 /// Writes parsed instructions to output_writer and returns parsed bytes count.
 const Parsers = struct { // this struct is used only as a namespace
-    // converts reg and w values to reg string representation
-    fn parseReg(reg: u3, w: u1) []const u8 {
-        const regs = &[_][]const []const u8 {
-            &[_][]const u8{ "al", "cl", "dl", "bl", "ah", "ch", "dh", "bh", },
-            &[_][]const u8{ "ax", "cx", "dx", "bx", "sp", "bp", "si", "di", },
-        };
+    /// Registers table, pass w and reg to get the register name
+    const regs = &[_][]const []const u8 {
+        &[_][]const u8{ "al", "cl", "dl", "bl", "ah", "ch", "dh", "bh", },
+        &[_][]const u8{ "ax", "cx", "dx", "bx", "sp", "bp", "si", "di", },
+    };
 
-        return regs[w][reg];
-
-        // "Pack what ye can; give index back"
-        //const regs: []const u8 = "alcldlblahchdhbhaxcxdxbxspbpsidi";
-        //const index = ((8*@as(u8, w))+@as(u8, reg))*2;
-        //return regs[index..index+2];
-    }
-
-    pub fn MOV(bytes: []u8, output_writer: anytype) !usize {
-        // 1000 1001 1101 1001 -> mov cx, bx
-        const MOVRegToReg = packed struct {
+    /// MOV Register/memory to/from register
+    pub fn MOV_RegMemToFromReg(bytes: []const u8, output_writer: anytype) !usize {
+        const MOV = packed struct {
             w: u1, d: u1, type: u6,
             rm: u3, reg: u3, mod: u2,
         };
@@ -95,35 +88,80 @@ const Parsers = struct { // this struct is used only as a namespace
         var bytes_read: usize = 0;
         while (true) {
             // do we have enough bytes
-            if (bytes.len - bytes_read < @sizeOf(MOVRegToReg)) {
+            if (bytes.len - bytes_read < @sizeOf(MOV)) {
                 break;
             }
 
             // cast to struct
-            const mov = @ptrCast(*align(1) const MOVRegToReg, bytes.ptr + bytes_read).*;
-            //std.debug.print("MOV: {}\n", .{mov});
+            const mov = @ptrCast(*align(1) const MOV, bytes.ptr + bytes_read).*;
+            //debug.print("MOV: {}\n", .{mov});
 
-            // validate
-            if (mov.type != 0b100010 or  // we support only one mov type
-                mov.mod  != 0b11 or      // and only register mode
-                mov.d    != 0) {         // d == 0 means that the source register
-                                         // is in src field, no idea what happens if d == 1
+            // validate type
+            if (mov.type != 0b100010) { // register/memory to/from register MOV
               break;
             }
 
-            // found instruction so move the bytes
-            bytes_read += @sizeOf(MOVRegToReg);
+            switch (mov.mod) {
+                // register mode
+                0b11 => {
+                    // found instruction so move the bytes
+                    bytes_read += @sizeOf(MOV);
 
-            // output parsed instruction
-            try output_writer.print("mov {s}, {s}\n", .{
-                parseReg(mov.rm, mov.w),
-                parseReg(mov.reg, mov.w) });
+                    // output parsed instruction
+                    if (mov.d == 0) { // source is in reg field
+                        try output_writer.print("mov {s}, {s}\n", .{
+                            regs[mov.w][mov.rm],
+                            regs[mov.w][mov.reg] });
+                    } else {
+                        try output_writer.print("mov {s}, {s}\n", .{
+                            regs[mov.w][mov.reg],
+                            regs[mov.w][mov.rm] });
+                    }
+                },
+                else => return error.UnsupportedMod,
+            }
         }
 
         return bytes_read;
     }
 };
 
-test "MOV test" {
-    // TODO(agabrys): write test for mov
+test "MOV_RegMemToFromReg" {
+    const expected_output =
+        \\mov cx, bx
+        \\mov ch, ah
+        \\mov dx, bx
+        \\mov si, bx
+        \\mov bx, di
+        \\mov al, cl
+        \\mov ch, ch
+        \\mov bx, ax
+        \\mov bx, si
+        \\mov sp, di
+        \\mov bp, ax
+        \\
+    ;
+
+    const bytes = [_]u8 {
+        0x89, 0xD9, // mov cx, bx
+        0x88, 0xE5, // mov ch, ah
+        0x89, 0xDA, // mov dx, bx
+        0x89, 0xDE, // mov si, bx
+        0x89, 0xFB, // mov bx, di
+        0x88, 0xC8, // mov al, cl
+        0x88, 0xED, // mov ch, ch
+        0x89, 0xC3, // mov bx, ax
+        0x89, 0xF3, // mov bx, si
+        0x89, 0xFC, // mov sp, di
+        0x89, 0xC5, // mov bp, ax
+    };
+
+    var output_buffer: [expected_output.len]u8 = undefined;
+    var fbs = std.io.fixedBufferStream(&output_buffer);
+    var output_writer = fbs.writer();
+
+    const bytes_read = try Parsers.MOV_RegMemToFromReg(&bytes, output_writer);
+
+    try testing.expectEqual(bytes.len, bytes_read);
+    try testing.expectEqualSlices(u8, expected_output[0..], output_buffer[0..]);
 }
