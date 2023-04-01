@@ -48,7 +48,11 @@ pub fn main() !void {
     try stdout.print("; {s}\n\n", .{file_path});
 
     // then decode the binary file into asm
-    try decode8086(file_content, stdout);
+    decode8086(file_content, stdout) catch |err| {
+        // and flush the buffered output
+        try bw.flush();
+        return err;
+    };
 
     // and flush the buffered output
     try bw.flush();
@@ -103,7 +107,6 @@ const Parsers = struct { // this struct is used only as a namespace
             try output_writer.writeAll(", ");
             try output_writer.print(dest_format, dest_data);
         }
-
         try output_writer.writeAll("\n");
     }
 
@@ -168,12 +171,13 @@ const Parsers = struct { // this struct is used only as a namespace
                 // memory mode with 8-bit or 16-bit displacement
                 0b01, 0b10 => {
                     // do we have enough bytes
-                    if (work_buffer.len < @sizeOf(MOV) + mov.mod) {
+                    const additional_bytes = @as(u8, mov.mod);
+                    if (work_buffer.len < @sizeOf(MOV) + additional_bytes) {
                         debug.print(
                             "found MOV with mod: 01 but not enough bytes for {d}-bit displacement\n" ++
                             "MOV: {}\n" ++
                             "bytes left ({}): [{x}]\n",
-                            .{@as(u8, mov.mod)*8, mov, work_buffer.len, fmt.fmtSliceHexLower(work_buffer)});
+                            .{additional_bytes*8, mov, work_buffer.len, fmt.fmtSliceHexLower(work_buffer)});
                         return error.NotEnoughBytes;
                     }
 
@@ -183,21 +187,19 @@ const Parsers = struct { // this struct is used only as a namespace
                     var displacement: u16 = @ptrCast(*align(1) const u8, work_buffer.ptr).*; // take the first byte
                     work_buffer = work_buffer[1..];
 
-                    // if mod 2 take the second byte
-                    if (mov.mod == 2) {
-                        displacement <<= 8;
-                        displacement |= @ptrCast(*align(1) const u8, work_buffer.ptr).*; // take the second byte
+                    if (additional_bytes == 2) {
+                        displacement |= @as(u16, @ptrCast(*align(1) const u8, work_buffer.ptr).*) << 8; // take the second byte
                         work_buffer = work_buffer[1..];
                     }
 
                     if (displacement == 0) {
                         try outputMOV( mov.d,
-                            "[{d}]", .{rms[mov.rm]},
+                            "[{s}]", .{rms[mov.rm]},
                              "{s}",  .{regs[mov.w][mov.reg]},
                             output_writer);
                     } else {
                         try outputMOV( mov.d,
-                            "[{d} + {d}]", .{rms[mov.rm], displacement},
+                            "[{s} + {d}]", .{rms[mov.rm], displacement},
                              "{s}",        .{regs[mov.w][mov.reg]},
                             output_writer);
                     }
