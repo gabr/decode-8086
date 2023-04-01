@@ -8,3 +8,4 @@ decode-8086
 # ignore helper scripts
 *.bat
 *.sh
+*.ps1
