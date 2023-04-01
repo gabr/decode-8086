@@ -66,9 +66,9 @@ fn decode8086(bytes: []u8, output_writer: anytype) !void {
     while (bytes_read < bytes.len) {
         const start_bytes_read = bytes_read;
 
-        bytes_read += try Parsers.MOV_RegMemToFromReg  (bytes[bytes_read..], output_writer);
-        bytes_read += try Parsers.MOV_ImidiateToRegMem (bytes[bytes_read..], output_writer);
-        bytes_read += try Parsers.MOV_ImidiateToReg    (bytes[bytes_read..], output_writer);
+        bytes_read += try Parsers.MOV_RegMemToFromReg   (bytes[bytes_read..], output_writer);
+        bytes_read += try Parsers.MOV_ImmediateToRegMem (bytes[bytes_read..], output_writer);
+        bytes_read += try Parsers.MOV_ImmediateToReg    (bytes[bytes_read..], output_writer);
 
 
         // if no bytes were consumed we have an unknown instruction
@@ -116,6 +116,37 @@ const Parsers = struct { // this struct is used only as a namespace
         return header;
     }
 
+    /// Will use mov_header to calculate displacement size (if any) and extract
+    /// its value (if any) and advance buffer by the amout of extracted bytes.
+    /// If there is not enough bytes it will return error.
+    fn extractMOVDisplacement(bytes: *[]const u8, mov_header: anytype) !i16 {
+        var displacement_size: usize =
+             if (mov_header.mod == 0b00 and mov_header.rm == 0b110) 2 // special case
+        else if (mov_header.mod == 0b01) 1
+        else if (mov_header.mod == 0b10) 2
+        else 0;
+
+        if (displacement_size == 0) {
+            return 0;
+        }
+
+        if (bytes.*.len < displacement_size) {
+            debug.print(
+                "not enough bytes for {d}-bit displacement\n" ++
+                "MOV: {}\n" ++
+                "bytes left ({}): [{x}]\n",
+                .{displacement_size*8, mov_header, bytes.*.len, fmt.fmtSliceHexLower(bytes.*)}
+            );
+            return error.NotEnoughBytes;
+        }
+        const displacement: i16 = if (displacement_size == 1)
+                  @ptrCast(*align(1) const  i8, bytes.*.ptr).*
+            else  @ptrCast(*align(1) const i16, bytes.*.ptr).*;
+        bytes.* = bytes.*[displacement_size..];
+
+        return displacement;
+    }
+
     /// Helper method for outputting MOV instructions which can have reversed
     /// source with destination based on 'd' field.
     fn outputMOV(
@@ -137,6 +168,61 @@ const Parsers = struct { // this struct is used only as a namespace
         try output_writer.writeAll("\n");
     }
 
+    /// Extracts common logic for outputing MOV based on the MOD field
+    fn outputMOVbasedOnMode(
+        d:   u1,
+        mod: u2,
+        rm:  u3,
+        displacement: i16,
+        comptime value_format:        []const u8, value:               anytype,
+        comptime register_mode_format:[]const u8, register_mode_value: anytype,
+        output_writer: anytype,
+    ) !void {
+        switch (mod) {
+            // memory mode
+            0b00 => {
+                // 16-bit direct address
+                if (rm == 0b110) {
+                    // in here the displacement is interpreted as direct address
+                    const direct_address = displacement;
+
+                    try outputMOV( d,
+                        "[{d}]",      .{direct_address},
+                        value_format, .{value},
+                        output_writer );
+                } else {
+                    try outputMOV( d,
+                        "[{s}]",      .{rms[rm]},
+                        value_format, .{value},
+                        output_writer );
+                }
+            },
+
+            // memory mode with 8-bit or 16-bit displacement
+            0b01, 0b10 => {
+                if (displacement == 0) {
+                    try outputMOV( d,
+                        "[{s}]",      .{rms[rm]},
+                        value_format, .{value},
+                        output_writer );
+                } else {
+                    try outputMOV( d,
+                        "[{s} + {d}]", .{rms[rm], displacement},
+                        value_format,  .{value},
+                        output_writer );
+                }
+            },
+
+            // register mode
+            0b11 => {
+                try outputMOV( d,
+                    register_mode_format, .{register_mode_value},
+                    value_format,         .{value},
+                    output_writer );
+            },
+        }
+    }
+
     /// MOV Register/memory to/from register
     pub fn MOV_RegMemToFromReg(bytes: []const u8, output_writer: anytype) !usize {
         const MOV = packed struct {
@@ -148,115 +234,67 @@ const Parsers = struct { // this struct is used only as a namespace
         const mov = extractHeader(&work_buffer, MOV, 0b00_100010)
             orelse return 0;
 
-        switch (mov.mod) {
-            // memory mode
-            0b00 => {
-                // 16-bit direct address
-                if (mov.rm == 0b110) {
-                    if (work_buffer.len < 2) {
-                        debug.print(
-                            "found MOV with mod: 00 and R/M: 110 but not enough bytes for 16-bit direct address\n" ++
-                            "MOV: {}\n" ++
-                            "bytes left ({}): [{x}]\n",
-                            .{mov, work_buffer.len, fmt.fmtSliceHexLower(work_buffer)});
-                        return error.NotEnoughBytes;
-                    }
+        const displacement = try extractMOVDisplacement(&work_buffer, mov);
 
-                    // "direct address" from two additional bytes
-                    const direct_address = @ptrCast(*align(1) const u16, work_buffer.ptr).*;
-                    work_buffer = work_buffer[@sizeOf(u16)..];
-
-                    try outputMOV( mov.d,
-                        "[{d}]", .{direct_address},
-                         "{s}",  .{regs[mov.w][mov.reg]},
-                        output_writer);
-                } else {
-                    try outputMOV(
-                        mov.d,
-                        "[{s}]", .{rms[mov.rm]},
-                         "{s}",  .{regs[mov.w][mov.reg]},
-                        output_writer);
-                }
-            },
-
-            // memory mode with 8-bit or 16-bit displacement
-            0b01, 0b10 => {
-                const additional_bytes: u8 = mov.mod; // have to cast to not overflow in the add below
-                if (work_buffer.len < additional_bytes) {
-                    debug.print(
-                        "found MOV with mod: 01 but not enough bytes for {d}-bit displacement\n" ++
-                        "MOV: {}\n" ++
-                        "bytes left ({}): [{x}]\n",
-                        .{additional_bytes*8, mov, work_buffer.len, fmt.fmtSliceHexLower(work_buffer)});
-                    return error.NotEnoughBytes;
-                }
-
-                // displacement from additional bytes
-                var displacement: u16 = if (mov.mod == 1)
-                         @ptrCast(*align(1) const  u8, work_buffer.ptr).*
-                    else @ptrCast(*align(1) const u16, work_buffer.ptr).*;
-                work_buffer = work_buffer[mov.mod..];
-
-                if (displacement == 0) {
-                    try outputMOV( mov.d,
-                        "[{s}]", .{rms[mov.rm]},
-                         "{s}",  .{regs[mov.w][mov.reg]},
-                        output_writer);
-                } else {
-                    try outputMOV( mov.d,
-                        "[{s} + {d}]", .{rms[mov.rm], displacement},
-                         "{s}",        .{regs[mov.w][mov.reg]},
-                        output_writer);
-                }
-            },
-
-            // register mode
-            0b11 => {
-                try outputMOV(
-                    mov.d,
-                    "{s}", .{regs[mov.w][mov.rm]},
-                    "{s}", .{regs[mov.w][mov.reg]},
-                    output_writer);
-            },
-        }
+        try outputMOVbasedOnMode(
+            mov.d,
+            mov.mod,
+            mov.rm,
+            displacement,
+            "{s}", regs[mov.w][mov.reg],
+            "{s}", regs[mov.w][mov.rm],
+            output_writer,
+        );
 
         return bytes.len - work_buffer.len;
     }
 
-    /// MOV Imidiate to register/memory
-    pub fn MOV_ImidiateToRegMem(bytes: []const u8, output_writer: anytype) !usize {
-        _ = output_writer;
+    /// MOV Immediate to register/memory
+    pub fn MOV_ImmediateToRegMem(bytes: []const u8, output_writer: anytype) !usize {
         const MOV = packed struct {
             w: u1, type: u7,
             rm: u3, unused: u3, mod: u2,
-            displacement: u16,
         };
-
 
         var work_buffer = bytes;
         const mov = extractHeader(&work_buffer, MOV, 0b0_1100011)
             orelse return 0;
 
-        // TODO(agabrys)
-        switch (mov.mod) {
-            // memory mode
-            0b00 => {
-            },
+        // extract displacement here because after it we have data which we
+        // also would like to extract before the switch to have it in one place
+        const displacement = try extractMOVDisplacement(&work_buffer, mov);
 
-            // memory mode with 8-bit or 16-bit displacement
-            0b01, 0b10 => {
-            },
-
-            // register mode
-            0b11 => {
-            },
+         // have to cast to not overflow in the add below
+        const data_size: u8 = @as(u8, mov.w)+1;
+        if (work_buffer.len < data_size) {
+            debug.print(
+                "found immediate to register/memory MOV but not enough bytes for {d}-bit data\n" ++
+                "MOV: {}\n" ++
+                "bytes left ({}): [{x}]\n",
+                .{data_size*8, mov, work_buffer.len, fmt.fmtSliceHexLower(work_buffer)}
+            );
+            return error.NotEnoughBytes;
         }
+        const data: i16 = if (mov.w == 0)
+                 @ptrCast(*align(1) const  i8, work_buffer.ptr).*
+            else @ptrCast(*align(1) const i16, work_buffer.ptr).*;
+        work_buffer = work_buffer[data_size..];
+
+        try outputMOVbasedOnMode(
+            0,
+            mov.mod,
+            mov.rm,
+            displacement,
+            "{d}", data,
+            "[{s}]", rms[mov.rm],
+            output_writer,
+        );
 
         return bytes.len - work_buffer.len;
     }
 
-    /// MOV Imidiate to register
-    pub fn MOV_ImidiateToReg(bytes: []const u8, output_writer: anytype) !usize {
+    /// MOV Immediate to register
+    pub fn MOV_ImmediateToReg(bytes: []const u8, output_writer: anytype) !usize {
         const MOV = packed struct {
             reg: u3, w: u1, type: u4,
         };
@@ -268,7 +306,13 @@ const Parsers = struct { // this struct is used only as a namespace
         // do we have enough bytes
         const data_size: u8 = @as(u8, mov.w)+1;
         if (work_buffer.len < data_size) {
-            return 0;
+            debug.print(
+                "found immediate to register MOV but not enough bytes for {d}-bit data\n" ++
+                "MOV: {}\n" ++
+                "bytes left ({}): [{x}]\n",
+                .{data_size*8, mov, work_buffer.len, fmt.fmtSliceHexLower(work_buffer)}
+            );
+            return error.NotEnoughBytes;
         }
 
         const data = if (mov.w == 0)   // \/ we are signed this time
@@ -277,10 +321,10 @@ const Parsers = struct { // this struct is used only as a namespace
         // move by the data size - at least 1 byte, if mov.w is 1 then we have two bytes
         work_buffer = work_buffer[data_size..];
 
-        try outputMOV(0,
+        try outputMOV( 0,
             "{s}", .{regs[mov.w][mov.reg]},
             "{d}", .{data},
-            output_writer);
+            output_writer );
 
         return bytes.len - work_buffer.len;
     }
@@ -357,7 +401,7 @@ test "MOV" {
         const start_bytes_read = bytes_read;
 
         bytes_read += try Parsers.MOV_RegMemToFromReg(bytes[bytes_read..], output_writer);
-        bytes_read += try Parsers.MOV_ImidiateToReg  (bytes[bytes_read..], output_writer);
+        bytes_read += try Parsers.MOV_ImmediateToReg  (bytes[bytes_read..], output_writer);
 
         // if no bytes were consumed we have an unknown instruction
         if (bytes_read <= start_bytes_read) {
