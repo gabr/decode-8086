@@ -92,7 +92,31 @@ const Parsers = struct { // this struct is used only as a namespace
     /// effective address calculation where index is the R/M field
     const rms = &[_][]const u8 { "bx + si", "bx + di", "bp + si", "bp + di", "si", "di", "bp", "bx" };
 
-    /// Helper method for outputing MOV instructions which can have reversed
+    /// Will try to extract given HeaderType struct from given bytes and if
+    /// that's possible will validate its type, advance bytes by the extracted
+    /// amount and return extracted header.
+    fn extractHeader(bytes: *[]const u8, comptime HeaderType: type, validate_type: u8) ?HeaderType {
+        // test if we have enough bytes
+        if (bytes.*.len < @sizeOf(HeaderType)) {
+            return null;
+        }
+
+        // if so extract the header
+        const header = @ptrCast(*align(1) const HeaderType, bytes.*.ptr).*;
+        // and validate type value
+        const header_type: u8 = header.type;
+        if (header_type != validate_type) {
+          return null;
+        }
+
+        // type is valid so advance the bytes slice by the header size
+        bytes.* = bytes.*[@sizeOf(HeaderType)..];
+
+        // and return
+        return header;
+    }
+
+    /// Helper method for outputting MOV instructions which can have reversed
     /// source with destination based on 'd' field.
     fn outputMOV(
         d: u1,
@@ -121,28 +145,14 @@ const Parsers = struct { // this struct is used only as a namespace
         };
 
         var work_buffer = bytes;
-
-        // do we have enough bytes
-        if (work_buffer.len < @sizeOf(MOV)) {
-            return 0;
-        }
-
-        // cast to struct
-        const mov = @ptrCast(*align(1) const MOV, work_buffer.ptr).*;
-        //debug.print("MOV: {}\n", .{mov});
-
-        // validate type
-        if (mov.type != 0b100010) {
-          return 0;
-        }
-        work_buffer = work_buffer[@sizeOf(MOV)..];
+        const mov = extractHeader(&work_buffer, MOV, 0b00_100010)
+            orelse return 0;
 
         switch (mov.mod) {
             // memory mode
             0b00 => {
                 // 16-bit direct address
                 if (mov.rm == 0b110) {
-                    // do we have enough bytes
                     if (work_buffer.len < 2) {
                         debug.print(
                             "found MOV with mod: 00 and R/M: 110 but not enough bytes for 16-bit direct address\n" ++
@@ -171,7 +181,6 @@ const Parsers = struct { // this struct is used only as a namespace
 
             // memory mode with 8-bit or 16-bit displacement
             0b01, 0b10 => {
-                // do we have enough bytes
                 const additional_bytes: u8 = mov.mod; // have to cast to not overflow in the add below
                 if (work_buffer.len < additional_bytes) {
                     debug.print(
@@ -223,22 +232,10 @@ const Parsers = struct { // this struct is used only as a namespace
             displacement: u16,
         };
 
+
         var work_buffer = bytes;
-
-        // do we have enough bytes
-        if (work_buffer.len < @sizeOf(MOV)) {
-            return 0;
-        }
-
-        // cast to struct
-        const mov = @ptrCast(*align(1) const MOV, work_buffer.ptr).*;
-        //debug.print("MOV: {}\n", .{mov});
-
-        // validate type
-        if (mov.type != 0b1100011) {
-          return 0;
-        }
-        work_buffer = work_buffer[@sizeOf(MOV)..];
+        const mov = extractHeader(&work_buffer, MOV, 0b0_1100011)
+            orelse return 0;
 
         // TODO(agabrys)
         switch (mov.mod) {
@@ -265,21 +262,8 @@ const Parsers = struct { // this struct is used only as a namespace
         };
 
         var work_buffer = bytes;
-
-        // do we have enough bytes
-        if (work_buffer.len < @sizeOf(MOV)) {
-            return 0;
-        }
-
-        // cast to struct
-        const mov = @ptrCast(*align(1) const MOV, work_buffer.ptr).*;
-        //debug.print("MOV: {}\n", .{mov});
-
-        // validate type
-        if (mov.type != 0b1011) {
-          return 0;
-        }
-        work_buffer = work_buffer[@sizeOf(MOV)..];
+        const mov = extractHeader(&work_buffer, MOV, 0b000_1011)
+            orelse return 0;
 
         // do we have enough bytes
         const data_size: u8 = @as(u8, mov.w)+1;
