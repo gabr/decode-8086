@@ -77,10 +77,10 @@ fn decode8086(bytes: []u8, output_writer: anytype) !void {
     }
 }
 
-/// Each parser parses as many instructions after each other as possible.
-/// Assumes that the first instruction starts at the beginning of given bytes
+/// Each parser parses only one instruction from given bytes.
+/// Assumes that the instruction starts at the beginning of given buffer
 /// and will not search past first byte and does not skip any bytes.
-/// Writes parsed instructions to output_writer and returns parsed bytes count.
+/// Writes parsed instruction to output_writer and returns parsed bytes count.
 const Parsers = struct { // this struct is used only as a namespace
     /// Registers table, pass w and reg to get the register name
     const regs = &[_][]const []const u8 {
@@ -120,99 +120,98 @@ const Parsers = struct { // this struct is used only as a namespace
         };
 
         var work_buffer = bytes;
-        while (true) {
-            // do we have enough bytes
-            if (work_buffer.len < @sizeOf(MOV)) {
-                break;
-            }
 
-            // cast to struct
-            const mov = @ptrCast(*align(1) const MOV, work_buffer.ptr).*;
-            //debug.print("MOV: {}\n", .{mov});
+        // do we have enough bytes
+        if (work_buffer.len < @sizeOf(MOV)) {
+            return 0;
+        }
 
-            // validate type
-            if (mov.type != 0b100010) {
-              break;
-            }
+        // cast to struct
+        const mov = @ptrCast(*align(1) const MOV, work_buffer.ptr).*;
+        //debug.print("MOV: {}\n", .{mov});
 
-            switch (mov.mod) {
-                // memory mode
-                0b00 => {
-                    // 16-bit direct address
-                    if (mov.rm == 0b110) {
-                        // do we have enough bytes
-                        if (work_buffer.len < @sizeOf(MOV) + 2) {
-                            debug.print(
-                                "found MOV with mod: 00 and R/M: 110 but not enough bytes for 16-bit direct address\n" ++
-                                "MOV: {}\n" ++
-                                "bytes left ({}): [{x}]\n",
-                                .{mov, work_buffer.len, fmt.fmtSliceHexLower(work_buffer)});
-                            return error.NotEnoughBytes;
-                        }
+        // validate type
+        if (mov.type != 0b100010) {
+          return 0;
+        }
 
-                        work_buffer = work_buffer[@sizeOf(MOV)..];
-
-                        // "direct address" from two additional bytes
-                        const direct_address = @ptrCast(*align(1) const u16, work_buffer.ptr).*;
-                        work_buffer = work_buffer[@sizeOf(u16)..];
-
-                        try outputMOV( mov.d,
-                            "[{d}]", .{direct_address},
-                             "{s}",  .{regs[mov.w][mov.reg]},
-                            output_writer);
-                    } else {
-                        work_buffer = work_buffer[@sizeOf(MOV)..];
-                        try outputMOV(
-                            mov.d,
-                            "[{s}]", .{rms[mov.rm]},
-                             "{s}",  .{regs[mov.w][mov.reg]},
-                            output_writer);
-                    }
-                },
-
-                // memory mode with 8-bit or 16-bit displacement
-                0b01, 0b10 => {
+        switch (mov.mod) {
+            // memory mode
+            0b00 => {
+                // 16-bit direct address
+                if (mov.rm == 0b110) {
                     // do we have enough bytes
-                    const additional_bytes: u8 = mov.mod; // have to cast to not overflow in the add below
-                    if (work_buffer.len < @sizeOf(MOV) + additional_bytes) {
+                    if (work_buffer.len < @sizeOf(MOV) + 2) {
                         debug.print(
-                            "found MOV with mod: 01 but not enough bytes for {d}-bit displacement\n" ++
+                            "found MOV with mod: 00 and R/M: 110 but not enough bytes for 16-bit direct address\n" ++
                             "MOV: {}\n" ++
                             "bytes left ({}): [{x}]\n",
-                            .{additional_bytes*8, mov, work_buffer.len, fmt.fmtSliceHexLower(work_buffer)});
+                            .{mov, work_buffer.len, fmt.fmtSliceHexLower(work_buffer)});
                         return error.NotEnoughBytes;
                     }
+
                     work_buffer = work_buffer[@sizeOf(MOV)..];
 
-                    // displacement from additional bytes
-                    var displacement: u16 = if (mov.mod == 1)
-                             @ptrCast(*align(1) const  u8, work_buffer.ptr).*
-                        else @ptrCast(*align(1) const u16, work_buffer.ptr).*;
-                    work_buffer = work_buffer[mov.mod..];
+                    // "direct address" from two additional bytes
+                    const direct_address = @ptrCast(*align(1) const u16, work_buffer.ptr).*;
+                    work_buffer = work_buffer[@sizeOf(u16)..];
 
-                    if (displacement == 0) {
-                        try outputMOV( mov.d,
-                            "[{s}]", .{rms[mov.rm]},
-                             "{s}",  .{regs[mov.w][mov.reg]},
-                            output_writer);
-                    } else {
-                        try outputMOV( mov.d,
-                            "[{s} + {d}]", .{rms[mov.rm], displacement},
-                             "{s}",        .{regs[mov.w][mov.reg]},
-                            output_writer);
-                    }
-                },
-
-                // register mode
-                0b11 => {
+                    try outputMOV( mov.d,
+                        "[{d}]", .{direct_address},
+                         "{s}",  .{regs[mov.w][mov.reg]},
+                        output_writer);
+                } else {
                     work_buffer = work_buffer[@sizeOf(MOV)..];
                     try outputMOV(
                         mov.d,
-                        "{s}", .{regs[mov.w][mov.rm]},
-                        "{s}", .{regs[mov.w][mov.reg]},
+                        "[{s}]", .{rms[mov.rm]},
+                         "{s}",  .{regs[mov.w][mov.reg]},
                         output_writer);
-                },
-            }
+                }
+            },
+
+            // memory mode with 8-bit or 16-bit displacement
+            0b01, 0b10 => {
+                // do we have enough bytes
+                const additional_bytes: u8 = mov.mod; // have to cast to not overflow in the add below
+                if (work_buffer.len < @sizeOf(MOV) + additional_bytes) {
+                    debug.print(
+                        "found MOV with mod: 01 but not enough bytes for {d}-bit displacement\n" ++
+                        "MOV: {}\n" ++
+                        "bytes left ({}): [{x}]\n",
+                        .{additional_bytes*8, mov, work_buffer.len, fmt.fmtSliceHexLower(work_buffer)});
+                    return error.NotEnoughBytes;
+                }
+                work_buffer = work_buffer[@sizeOf(MOV)..];
+
+                // displacement from additional bytes
+                var displacement: u16 = if (mov.mod == 1)
+                         @ptrCast(*align(1) const  u8, work_buffer.ptr).*
+                    else @ptrCast(*align(1) const u16, work_buffer.ptr).*;
+                work_buffer = work_buffer[mov.mod..];
+
+                if (displacement == 0) {
+                    try outputMOV( mov.d,
+                        "[{s}]", .{rms[mov.rm]},
+                         "{s}",  .{regs[mov.w][mov.reg]},
+                        output_writer);
+                } else {
+                    try outputMOV( mov.d,
+                        "[{s} + {d}]", .{rms[mov.rm], displacement},
+                         "{s}",        .{regs[mov.w][mov.reg]},
+                        output_writer);
+                }
+            },
+
+            // register mode
+            0b11 => {
+                work_buffer = work_buffer[@sizeOf(MOV)..];
+                try outputMOV(
+                    mov.d,
+                    "{s}", .{regs[mov.w][mov.rm]},
+                    "{s}", .{regs[mov.w][mov.reg]},
+                    output_writer);
+            },
         }
 
         return bytes.len - work_buffer.len;
@@ -225,32 +224,34 @@ const Parsers = struct { // this struct is used only as a namespace
         };
 
         var work_buffer = bytes;
-        while (true) {
-            // do we have enough bytes
-            if (work_buffer.len < @sizeOf(MOV)) {
-                break;
-            }
 
-            // cast to struct
-            const mov = @ptrCast(*align(1) const MOV, work_buffer.ptr).*;
-            //debug.print("MOV: {}\n", .{mov});
-
-            // validate type
-            if (mov.type != 0b1011) {
-              break;
-            }
-
-            // move by the header size
-            work_buffer = work_buffer[@sizeOf(MOV)..];
-
-            const data = if (mov.w == 0)   // \/ we are signed this time
-                     @ptrCast(*align(1) const  i8, work_buffer.ptr).*
-                else @ptrCast(*align(1) const i16, work_buffer.ptr).*;
-            // move by the data size - at least 1 byte, if mov.w is 1 then we have two bytes
-            work_buffer = work_buffer[@as(u8, mov.w)+1..];
-
-            try outputMOV( 0, "{s}", .{regs[mov.w][mov.reg]}, "{d}", .{data}, output_writer);
+        // do we have enough bytes
+        if (work_buffer.len < @sizeOf(MOV)) {
+            return 0;
         }
+
+        // cast to struct
+        const mov = @ptrCast(*align(1) const MOV, work_buffer.ptr).*;
+        //debug.print("MOV: {}\n", .{mov});
+
+        // validate type
+        if (mov.type != 0b1011) {
+          return 0;
+        }
+
+        // move by the header size
+        work_buffer = work_buffer[@sizeOf(MOV)..];
+
+        const data = if (mov.w == 0)   // \/ we are signed this time
+                 @ptrCast(*align(1) const  i8, work_buffer.ptr).*
+            else @ptrCast(*align(1) const i16, work_buffer.ptr).*;
+        // move by the data size - at least 1 byte, if mov.w is 1 then we have two bytes
+        work_buffer = work_buffer[@as(u8, mov.w)+1..];
+
+        try outputMOV(0,
+            "{s}", .{regs[mov.w][mov.reg]},
+            "{d}", .{data},
+            output_writer);
 
         return bytes.len - work_buffer.len;
     }
