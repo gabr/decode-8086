@@ -287,7 +287,7 @@ const Parsers = struct { // this struct is used only as a namespace
                  @ptrCast(*align(1) const  i8, work_buffer.ptr).*
             else @ptrCast(*align(1) const i16, work_buffer.ptr).*;
         work_buffer = work_buffer[data_size..];
-        const data_prefix = if (mov.w == 0) "byte" else "word ";
+        const data_prefix = if (mov.w == 0) "byte" else "word";
 
         try outputMOVbasedOnMode(
             0,
@@ -384,33 +384,67 @@ test "decode8086" {
         output: []const u8,
     };
     const test_cases = [_]TestCase{
-        .{ .bytes = &[_]u8{ 0x89, 0xD9 },              .output = "mov cx, bx" },
-        .{ .bytes = &[_]u8{ 0x88, 0xE5 },              .output = "mov ch, ah" },
-        .{ .bytes = &[_]u8{ 0x89, 0xDA },              .output = "mov dx, bx" },
-        .{ .bytes = &[_]u8{ 0x89, 0xDE },              .output = "mov si, bx" },
-        .{ .bytes = &[_]u8{ 0x89, 0xFB },              .output = "mov bx, di" },
-        .{ .bytes = &[_]u8{ 0x88, 0xC8 },              .output = "mov al, cl" },
-        .{ .bytes = &[_]u8{ 0x88, 0xED },              .output = "mov ch, ch" },
-        .{ .bytes = &[_]u8{ 0x89, 0xC3 },              .output = "mov bx, ax" },
-        .{ .bytes = &[_]u8{ 0x89, 0xF3 },              .output = "mov bx, si" },
-        .{ .bytes = &[_]u8{ 0x89, 0xFC },              .output = "mov sp, di" },
-        .{ .bytes = &[_]u8{ 0x89, 0xC5 },              .output = "mov bp, ax" },
-        .{ .bytes = &[_]u8{ 0x89, 0xDE },              .output = "mov si, bx" },
-        .{ .bytes = &[_]u8{ 0x88, 0xC6 },              .output = "mov dh, al" },
-        .{ .bytes = &[_]u8{ 0xB1, 0x0C },              .output = "mov cl, 12" },
-        .{ .bytes = &[_]u8{ 0xB5, 0xF4 },              .output = "mov ch, -12" },
-        .{ .bytes = &[_]u8{ 0xB9, 0x0C, 0x00 },        .output = "mov cx, 12" },
-        .{ .bytes = &[_]u8{ 0xB9, 0xF4, 0xFF },        .output = "mov cx, -12" },
-        .{ .bytes = &[_]u8{ 0xBA, 0x6C, 0x0F },        .output = "mov dx, 3948" },
-        .{ .bytes = &[_]u8{ 0xBA, 0x94, 0xF0 },        .output = "mov dx, -3948" },
-        .{ .bytes = &[_]u8{ 0x8A, 0x00 },              .output = "mov al, [bx + si]" },
-        .{ .bytes = &[_]u8{ 0x8B, 0x1B },              .output = "mov bx, [bp + di]" },
-        .{ .bytes = &[_]u8{ 0x8B, 0x56, 0x00 },        .output = "mov dx, [bp]" },
-        .{ .bytes = &[_]u8{ 0x8A, 0x60, 0x04 },        .output = "mov ah, [bx + si + 4]" },
-        .{ .bytes = &[_]u8{ 0x8A, 0x80, 0x87, 0x13 },  .output = "mov al, [bx + si + 4999]" },
-        .{ .bytes = &[_]u8{ 0x89, 0x09 },              .output = "mov [bx + di], cx" },
-        .{ .bytes = &[_]u8{ 0x88, 0x0A },              .output = "mov [bp + si], cl" },
-        .{ .bytes = &[_]u8{ 0x88, 0x6E, 0x00 },        .output = "mov [bp], ch" },
+          // basic register to register moves
+        .{ .bytes = &[_]u8{ 0x89, 0xD9 }, .output = "mov cx, bx" },
+        .{ .bytes = &[_]u8{ 0x88, 0xE5 }, .output = "mov ch, ah" },
+        .{ .bytes = &[_]u8{ 0x89, 0xDA }, .output = "mov dx, bx" },
+        .{ .bytes = &[_]u8{ 0x89, 0xDE }, .output = "mov si, bx" },
+        .{ .bytes = &[_]u8{ 0x89, 0xFB }, .output = "mov bx, di" },
+        .{ .bytes = &[_]u8{ 0x88, 0xC8 }, .output = "mov al, cl" },
+        .{ .bytes = &[_]u8{ 0x88, 0xED }, .output = "mov ch, ch" },
+        .{ .bytes = &[_]u8{ 0x89, 0xC3 }, .output = "mov bx, ax" },
+        .{ .bytes = &[_]u8{ 0x89, 0xF3 }, .output = "mov bx, si" },
+        .{ .bytes = &[_]u8{ 0x89, 0xFC }, .output = "mov sp, di" },
+        .{ .bytes = &[_]u8{ 0x89, 0xC5 }, .output = "mov bp, ax" },
+        .{ .bytes = &[_]u8{ 0x89, 0xDE }, .output = "mov si, bx" },
+        .{ .bytes = &[_]u8{ 0x88, 0xC6 }, .output = "mov dh, al" },
+
+          // 8-bit immediate-to-register
+        .{ .bytes = &[_]u8{ 0xB1, 0x0C }, .output = "mov cl, 12" },
+        .{ .bytes = &[_]u8{ 0xB5, 0xF4 }, .output = "mov ch, -12" },
+
+          // 16-bit immediate-to-register
+        .{ .bytes = &[_]u8{ 0xB9, 0x0C, 0x00 }, .output = "mov cx, 12" },
+        .{ .bytes = &[_]u8{ 0xB9, 0xF4, 0xFF }, .output = "mov cx, -12" },
+        .{ .bytes = &[_]u8{ 0xBA, 0x6C, 0x0F }, .output = "mov dx, 3948" },
+        .{ .bytes = &[_]u8{ 0xBA, 0x94, 0xF0 }, .output = "mov dx, -3948" },
+
+          // Source address calculation
+        .{ .bytes = &[_]u8{ 0x8A, 0x00 },       .output = "mov al, [bx + si]" },
+        .{ .bytes = &[_]u8{ 0x8B, 0x1B },       .output = "mov bx, [bp + di]" },
+        .{ .bytes = &[_]u8{ 0x8B, 0x56, 0x00 }, .output = "mov dx, [bp]" },
+
+          // Source address calculation plus 8-bit displacement
+        .{ .bytes = &[_]u8{ 0x8A, 0x60, 0x04 }, .output = "mov ah, [bx + si + 4]" },
+
+          // Source address calculation plus 16-bit displacement
+        .{ .bytes = &[_]u8{ 0x8A, 0x80, 0x87, 0x13 }, .output = "mov al, [bx + si + 4999]" },
+
+          // Dest address calculation
+        .{ .bytes = &[_]u8{ 0x89, 0x09 },       .output = "mov [bx + di], cx" },
+        .{ .bytes = &[_]u8{ 0x88, 0x0A },       .output = "mov [bp + si], cl" },
+        .{ .bytes = &[_]u8{ 0x88, 0x6E, 0x00 }, .output = "mov [bp], ch" },
+
+          // Signed displacements
+        .{ .bytes = &[_]u8{ 0x8B, 0x41, 0xDB},        .output = "mov ax, [bx + di - 37]" },
+        .{ .bytes = &[_]u8{ 0x89, 0x8C, 0xD4, 0xFE }, .output = "mov [si - 300], cx" },
+        .{ .bytes = &[_]u8{ 0x8B, 0x57, 0xE0},        .output = "mov dx, [bx - 32]" },
+
+          // Explicit sizes
+        .{ .bytes = &[_]u8{ 0xC6, 0x03, 0x07 },                   .output = "mov [bp + di], byte 7" },
+        .{ .bytes = &[_]u8{ 0xC7, 0x85, 0x85, 0x03, 0x5B, 0x01 }, .output = "mov [di + 901], word 347" },
+
+          // Direct address
+        .{ .bytes = &[_]u8{ 0x8B, 0x2E, 0x05, 0x00 }, .output = "mov bp, [5]" },
+        .{ .bytes = &[_]u8{ 0x8B, 0x1E, 0x82, 0x0D }, .output = "mov bx, [3458]" },
+
+          // Memory-to-accumulator test
+        .{ .bytes = &[_]u8{ 0xA1, 0xFB, 0x09 }, .output = "mov ax, [2555]" },
+        .{ .bytes = &[_]u8{ 0xA1, 0x10, 0x00 }, .output = "mov ax, [16]" },
+
+          // Accumulator-to-memory test
+        .{ .bytes = &[_]u8{ 0xA3, 0xFA, 0x09 }, .output = "mov [2554], ax" },
+        .{ .bytes = &[_]u8{ 0xA3, 0x0F, 0x00 }, .output = "mov [15], ax" },
     };
 
     var output_buffer: [test_cases.len*32]u8 = undefined;
@@ -462,6 +496,9 @@ test "decode8086" {
     });
 
     // if all succeeded then do the combined test
+    // This combined test is important to make sure that we do not consume too
+    // many bytes when decoding instruction and that we output them in correct
+    // order and with new lines and so on.
     if (failed_tests == 0) {
         // merge the data
         var bytes_buffer           : [output_buffer.len]u8 = undefined;
@@ -506,13 +543,13 @@ test "decode8086" {
         if (mem.eql(u8, expected_output, output) == false) {
             debug.print("combined test failed\n" ++
                 "expected ({d}):\n" ++
-                "--------------------------------------------------------------------------------\n" ++
+                "-----------------------------n" ++
                 "{s}\n" ++
-                "--------------------------------------------------------------------------------\n" ++
+                "-----------------------------n" ++
                 "got ({d}):\n" ++
-                "--------------------------------------------------------------------------------\n" ++
+                "-----------------------------n" ++
                 "{s}\n" ++
-                "--------------------------------------------------------------------------------\n",
+                "-----------------------------n",
                 .{
                     expected_output.len,
                     expected_output,
