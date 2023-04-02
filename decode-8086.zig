@@ -378,10 +378,6 @@ const Parsers = struct { // this struct is used only as a namespace
 
 test "decode8086" {
     // setup
-    var output_buffer: [math.maxInt(u8)]u8 = undefined;
-    var fbs = io.fixedBufferStream(&output_buffer);
-    var output_writer = fbs.writer();
-
     const TestCase = struct {
         bytes:  []const u8,
         output: []const u8,
@@ -416,17 +412,21 @@ test "decode8086" {
         .{ .bytes = &[_]u8{ 0x88, 0x6E, 0x00 },        .output = "mov [bp], ch" },
     };
 
-    const header = "bits16\n\n";
+    const header = "bits 16\n\n";
     var failed_tests: usize = 0;
+
+    var output_buffer: [header.len+(test_cases.len*32)]u8 = undefined;
+    var fbs = io.fixedBufferStream(&output_buffer);
+    var output_writer = fbs.writer();
 
     // run tests
     for (test_cases) |test_case, index| {
-        // reste the buffer at the end of the loop
+        // reset the buffer at the end of the loop
         defer fbs.reset();
 
         // decode
         decode8086(test_case.bytes, output_writer) catch |err| {
-            // print detals on decode fail but continue with the tests
+            // print details on decode fail but continue with the tests
             failed_tests += 1;
             debug.print("test {d} failed, bytes: {x}, expected ({d}): '{s}', got: {}\n", .{
                 index,
@@ -442,7 +442,7 @@ test "decode8086" {
 
         // skip the header to get just the generated instruction
         // and trim the new line at the end
-        const output = output_buffer[header.len+1..fbs.pos-1];
+        const output = output_buffer[header.len..fbs.pos-1];
 
         // compare
         if (mem.eql(u8, test_case.output, output) == false) {
@@ -462,4 +462,72 @@ test "decode8086" {
         test_cases.len - failed_tests,
         failed_tests
     });
+
+    // if all succeeded then do the combined test
+    if (failed_tests == 0) {
+        // merge the data
+        var bytes_buffer           : [output_buffer.len]u8 = undefined;
+        var expected_output_buffer : [output_buffer.len]u8 = undefined;
+
+        var bytes           : []u8 = bytes_buffer          [0..];
+        var expected_output : []u8 = expected_output_buffer[0..];
+
+        var total_bytes_count : usize = 0;
+        var total_output_len  : usize = 0;
+
+        mem.copy(u8, expected_output, header);
+        expected_output = expected_output[header.len..];
+        total_output_len += header.len;
+
+        for (test_cases) |test_case| {
+            mem.copy(u8, bytes, test_case.bytes);
+            bytes = bytes[test_case.bytes.len..];
+            total_bytes_count += test_case.bytes.len;
+
+            mem.copy(u8, expected_output, test_case.output);
+            expected_output = expected_output[test_case.output.len..];
+            total_output_len += test_case.output.len;
+            mem.copy(u8, expected_output, "\n");
+            expected_output = expected_output["\n".len..];
+            total_output_len += "\n".len;
+        }
+
+        bytes           = bytes_buffer          [0..total_bytes_count];
+        expected_output = expected_output_buffer[0..total_output_len];
+
+        // decode
+        fbs.reset();
+        decode8086(bytes, output_writer) catch |err| {
+            // print details on decode fail but continue with the tests
+            failed_tests += 1;
+            debug.print("combined test failed with {}\n", .{err});
+            if (@errorReturnTrace()) |stack| {
+                debug.dumpStackTrace(stack.*);
+            }
+            return;
+        };
+
+        // compare
+        const output = fbs.getWritten();
+        if (mem.eql(u8, expected_output, output) == false) {
+            debug.print("combined test failed\n" ++
+                "expected ({d}):\n" ++
+                "--------------------------------------------------------------------------------\n" ++
+                "{s}\n" ++
+                "--------------------------------------------------------------------------------\n" ++
+                "got ({d}):\n" ++
+                "--------------------------------------------------------------------------------\n" ++
+                "{s}\n" ++
+                "--------------------------------------------------------------------------------\n",
+                .{
+                    expected_output.len,
+                    expected_output,
+                    output.len,
+                    output,
+                }
+            );
+        } else {
+            debug.print("combined test passed\n", .{});
+        }
+    }
 }
