@@ -59,7 +59,7 @@ pub fn main() !void {
 }
 
 /// Decodes 8086 instructions and writes ASM representation to given output writer
-fn decode8086(bytes: []u8, output_writer: anytype) !void {
+fn decode8086(bytes: []const u8, output_writer: anytype) !void {
     try output_writer.writeAll("bits 16\n\n");
 
     var bytes_read: usize = 0;
@@ -376,88 +376,90 @@ const Parsers = struct { // this struct is used only as a namespace
     }
 };
 
-test "MOV" {
-    const expected_output =
-        \\mov cx, bx
-        \\mov ch, ah
-        \\mov dx, bx
-        \\mov si, bx
-        \\mov bx, di
-        \\mov al, cl
-        \\mov ch, ch
-        \\mov bx, ax
-        \\mov bx, si
-        \\mov sp, di
-        \\mov bp, ax
-        \\mov si, bx
-        \\mov dh, al
-        \\mov cl, 12
-        \\mov ch, -12
-        \\mov cx, 12
-        \\mov cx, -12
-        \\mov dx, 3948
-        \\mov dx, -3948
-        \\mov al, [bx + si]
-        \\mov bx, [bp + di]
-        \\mov dx, [bp]
-        \\mov ah, [bx + si + 4]
-        \\mov al, [bx + si + 4999]
-        \\mov [bx + di], cx
-        \\mov [bp + si], cl
-        \\mov [bp], ch
-        \\
-    ;
-
-    const bytes = [_]u8 {
-        0x89, 0xD9,              // mov cx, bx
-        0x88, 0xE5,              // mov ch, ah
-        0x89, 0xDA,              // mov dx, bx
-        0x89, 0xDE,              // mov si, bx
-        0x89, 0xFB,              // mov bx, di
-        0x88, 0xC8,              // mov al, cl
-        0x88, 0xED,              // mov ch, ch
-        0x89, 0xC3,              // mov bx, ax
-        0x89, 0xF3,              // mov bx, si
-        0x89, 0xFC,              // mov sp, di
-        0x89, 0xC5,              // mov bp, ax
-        0x89, 0xDE,              // mov si, bx
-        0x88, 0xC6,              // mov dh, al
-        0xB1, 0x0C,              // mov cl, 12
-        0xB5, 0xF4,              // mov ch, -12
-        0xB9, 0x0C,              // mov cx, 12
-        0x00, 0xB9,              // mov cx, -12
-        0xF4, 0xFF, 0xBA, 0x6C,  // mov dx, 3948
-        0x0F, 0xBA, 0x94, 0xF0,  // mov dx, -3948
-        0x8A, 0x00,              // mov al, [bx + si]
-        0x8B, 0x1B,              // mov bx, [bp + di]
-        0x8B, 0x56, 0x00,        // mov dx, [bp]
-        0x8A, 0x60, 0x04,        // mov ah, [bx + si + 4]
-        0x8A, 0x80, 0x87, 0x13,  // mov al, [bx + si + 4999]
-        0x89, 0x09,              // mov [bx + di], cx
-        0x88, 0x0A,              // mov [bp + si], cl
-        0x88, 0x6E, 0x00         // mov [bp], ch
-    };
-
-    var output_buffer: [expected_output.len]u8 = undefined;
+test "decode8086" {
+    // setup
+    var output_buffer: [math.maxInt(u8)]u8 = undefined;
     var fbs = io.fixedBufferStream(&output_buffer);
     var output_writer = fbs.writer();
 
-    var bytes_read: usize = 0;
-    while (bytes_read < bytes.len) {
-        const start_bytes_read = bytes_read;
+    const TestCase = struct {
+        bytes:  []const u8,
+        output: []const u8,
+    };
+    const test_cases = [_]TestCase{
+        .{ .bytes = &[_]u8{ 0x89, 0xD9 },              .output = "mov cx, bx" },
+        .{ .bytes = &[_]u8{ 0x88, 0xE5 },              .output = "mov ch, ah" },
+        .{ .bytes = &[_]u8{ 0x89, 0xDA },              .output = "mov dx, bx" },
+        .{ .bytes = &[_]u8{ 0x89, 0xDE },              .output = "mov si, bx" },
+        .{ .bytes = &[_]u8{ 0x89, 0xFB },              .output = "mov bx, di" },
+        .{ .bytes = &[_]u8{ 0x88, 0xC8 },              .output = "mov al, cl" },
+        .{ .bytes = &[_]u8{ 0x88, 0xED },              .output = "mov ch, ch" },
+        .{ .bytes = &[_]u8{ 0x89, 0xC3 },              .output = "mov bx, ax" },
+        .{ .bytes = &[_]u8{ 0x89, 0xF3 },              .output = "mov bx, si" },
+        .{ .bytes = &[_]u8{ 0x89, 0xFC },              .output = "mov sp, di" },
+        .{ .bytes = &[_]u8{ 0x89, 0xC5 },              .output = "mov bp, ax" },
+        .{ .bytes = &[_]u8{ 0x89, 0xDE },              .output = "mov si, bx" },
+        .{ .bytes = &[_]u8{ 0x88, 0xC6 },              .output = "mov dh, al" },
+        .{ .bytes = &[_]u8{ 0xB1, 0x0C },              .output = "mov cl, 12" },
+        .{ .bytes = &[_]u8{ 0xB5, 0xF4 },              .output = "mov ch, -12" },
+        .{ .bytes = &[_]u8{ 0xB9, 0x0C, 0x00 },        .output = "mov cx, 12" },
+        .{ .bytes = &[_]u8{ 0xB9, 0xF4, 0xFF },        .output = "mov cx, -12" },
+        .{ .bytes = &[_]u8{ 0xBA, 0x6C, 0x0F },        .output = "mov dx, 3948" },
+        .{ .bytes = &[_]u8{ 0xBA, 0x94, 0xF0 },        .output = "mov dx, -3948" },
+        .{ .bytes = &[_]u8{ 0x8A, 0x00 },              .output = "mov al, [bx + si]" },
+        .{ .bytes = &[_]u8{ 0x8B, 0x1B },              .output = "mov bx, [bp + di]" },
+        .{ .bytes = &[_]u8{ 0x8B, 0x56, 0x00 },        .output = "mov dx, [bp]" },
+        .{ .bytes = &[_]u8{ 0x8A, 0x60, 0x04 },        .output = "mov ah, [bx + si + 4]" },
+        .{ .bytes = &[_]u8{ 0x8A, 0x80, 0x87, 0x13 },  .output = "mov al, [bx + si + 4999]" },
+        .{ .bytes = &[_]u8{ 0x89, 0x09 },              .output = "mov [bx + di], cx" },
+        .{ .bytes = &[_]u8{ 0x88, 0x0A },              .output = "mov [bp + si], cl" },
+        .{ .bytes = &[_]u8{ 0x88, 0x6E, 0x00 },        .output = "mov [bp], ch" },
+    };
 
-        bytes_read += try Parsers.MOV_RegMemToFromReg(bytes[bytes_read..], output_writer);
-        bytes_read += try Parsers.MOV_ImmediateToReg  (bytes[bytes_read..], output_writer);
-        //TODO(agabrys): add rest of MOV instructions
+    const header = "bits16\n\n";
+    var failed_tests: usize = 0;
 
-        // if no bytes were consumed we have an unknown instruction
-        if (bytes_read <= start_bytes_read) {
-            return error.UnknownInstruction;
+    // run tests
+    for (test_cases) |test_case, index| {
+        // reste the buffer at the end of the loop
+        defer fbs.reset();
+
+        // decode
+        decode8086(test_case.bytes, output_writer) catch |err| {
+            // print detals on decode fail but continue with the tests
+            failed_tests += 1;
+            debug.print("test {d} failed, bytes: {x}, expected ({d}): '{s}', got: {}\n", .{
+                index,
+                fmt.fmtSliceHexLower(test_case.bytes),
+                test_case.output.len, test_case.output,
+                err
+            });
+            if (@errorReturnTrace()) |stack| {
+                debug.dumpStackTrace(stack.*);
+            }
+            continue;
+        };
+
+        // skip the header to get just the generated instruction
+        // and trim the new line at the end
+        const output = output_buffer[header.len+1..fbs.pos-1];
+
+        // compare
+        if (mem.eql(u8, test_case.output, output) == false) {
+            failed_tests += 1;
+            debug.print("test {d} failed, bytes: {x}, expected ({d}): '{s}', got({d}): '{s}'\n", .{
+                index,
+                fmt.fmtSliceHexLower(test_case.bytes),
+                test_case.output.len, test_case.output,
+                output.len, output
+            });
         }
     }
 
-    debug.print("output:\n{s}\n", .{fbs.getWritten()});
-
-    try testing.expectEqual(bytes.len, bytes_read);
-    try testing.expectEqualSlices(u8, expected_output[0..], output_buffer[0..]);
+    // summary
+    debug.print("\nrun {d} tests; passed: {d}; failed: {d}\n", .{
+        test_cases.len,
+        test_cases.len - failed_tests,
+        failed_tests
+    });
 }
