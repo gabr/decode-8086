@@ -255,8 +255,8 @@ const Parsers = struct { // this struct is used only as a namespace
             0b000000 => "add",
             0b001010 => "sub",
             0b001110 => "cmp",
-            else => null,
-        } orelse return 0;
+            else => return 0,
+        };
 
         const displacement = try extractDisplacement(&work_buffer, header);
 
@@ -295,11 +295,9 @@ const Parsers = struct { // this struct is used only as a namespace
                 0b000 => "add",
                 0b101 => "sub",
                 0b111 => "cmp",
-                else => null,
-            } orelse return 0;
+                else => return 0,
+            };
 
-        // extract displacement here because after it we have data which we
-        // also would like to extract before the switch to have it in one place
         const displacement = try extractDisplacement(&work_buffer, header);
 
         // have to cast to not overflow in the add below
@@ -320,16 +318,29 @@ const Parsers = struct { // this struct is used only as a namespace
         work_buffer = work_buffer[data_size..];
         const data_prefix = if (header.w == 0) "byte" else "word";
 
-        try outputBasedOnMode(
-            instruction,
-            0,
-            header.mod,
-            header.rm,
-            displacement,
-            "{s} {d}", .{data_prefix, data},
-            "[{s}]", rms[header.rm],
-            output_writer,
-        );
+        if (header.mod == 0b11) {
+            try outputBasedOnMode(
+                instruction,
+                0,
+                header.mod,
+                header.rm,
+                displacement,
+                "{d}", .{data},
+                "{s}", regs[header.w][header.rm],
+                output_writer,
+            );
+        } else {
+            try outputBasedOnMode(
+                instruction,
+                0,
+                header.mod,
+                header.rm,
+                displacement,
+                "{s} {d}", .{data_prefix, data},
+                "[{s}]", rms[header.rm],
+                output_writer,
+            );
+        }
 
         return bytes.len - work_buffer.len;
     }
@@ -351,8 +362,8 @@ const Parsers = struct { // this struct is used only as a namespace
             0b0000010 => "add",
             0b0010110 => "sub",
             0b0011110 => "cmp",
-            else => null, // TOOD(agabry): can I just return here?
-        } orelse return 0;
+            else => return 0,
+        };
 
         const register = if (header.w == 0) "al" else "ax";
 
@@ -522,6 +533,33 @@ test "decode8086" {
           // Accumulator-to-memory test
         .{ .bytes = &[_]u8{ 0xA3, 0xFA, 0x09 }, .output = "mov [2554], ax" },
         .{ .bytes = &[_]u8{ 0xA3, 0x0F, 0x00 }, .output = "mov [15], ax" },
+
+          // adds
+        .{ .bytes = &[_]u8{ 0x03, 0x18 }, .output = "add bx, [bx + si]" },
+        .{ .bytes = &[_]u8{ 0x03, 0x5E, 0x00 }, .output = "add bx, [bp]" },    // id     sw  mod type rm
+        .{ .bytes = &[_]u8{ 0x83, 0xC6, 0x02, 0x00 }, .output = "add si, 2" },
+        .{ .bytes = &[_]u8{ 0x83, 0xC5, 0x02, 0x00 }, .output = "add bp, 2" },
+        .{ .bytes = &[_]u8{ 0x83, 0xC1, 0x08, 0x00 }, .output = "add cx, 8" },
+        .{ .bytes = &[_]u8{ 0x03, 0x5E, 0x00 }, .output = "add bx, [bp]" },
+        .{ .bytes = &[_]u8{ 0x03, 0x4F, 0x02 }, .output = "add cx, [bx + 2]" },
+        .{ .bytes = &[_]u8{ 0x02, 0x7A, 0x04 }, .output = "add bh, [bp + si + 4]" },
+        .{ .bytes = &[_]u8{ 0x03, 0x7B, 0x06 }, .output = "add di, [bp + di + 6]" },
+        .{ .bytes = &[_]u8{ 0x01, 0x18 }, .output = "add [bx + si], bx" },
+        .{ .bytes = &[_]u8{ 0x01, 0x5E, 0x00 }, .output = "add [bp], bx" },
+        .{ .bytes = &[_]u8{ 0x01, 0x5E, 0x00 }, .output = "add [bp], bx" },
+        .{ .bytes = &[_]u8{ 0x01, 0x4F, 0x02 }, .output = "add [bx + 2], cx" },
+        .{ .bytes = &[_]u8{ 0x00, 0x7A, 0x04 }, .output = "add [bp + si + 4], bh" },
+        .{ .bytes = &[_]u8{ 0x01, 0x7B, 0x06 }, .output = "add [bp + di + 6], di" },
+        .{ .bytes = &[_]u8{ 0x80, 0x07, 0x22 }, .output = "add [bx], byte 34" },
+        .{ .bytes = &[_]u8{ 0x83, 0x82, 0xE8, 0x03, 0x1D, 0x00 }, .output = "add [bp + si + 1000], word 29" },
+        .{ .bytes = &[_]u8{ 0x03, 0x46, 0x00 }, .output = "add ax, [bp]" },
+        .{ .bytes = &[_]u8{ 0x02, 0x00 }, .output = "add al, [bx + si]" },
+        .{ .bytes = &[_]u8{ 0x01, 0xD8 }, .output = "add ax, bx" },
+        .{ .bytes = &[_]u8{ 0x00, 0xE0 }, .output = "add al, ah" },
+        .{ .bytes = &[_]u8{ 0x05, 0xE8, 0x03 }, .output = "add ax, 1000" },
+        .{ .bytes = &[_]u8{ 0x04, 0xE2 }, .output = "add al, -30" },
+        .{ .bytes = &[_]u8{ 0x04, 0x09 }, .output = "add al, 9" },
+
     };
 
     var output_buffer: [test_cases.len*32]u8 = undefined;
