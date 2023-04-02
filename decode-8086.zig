@@ -585,6 +585,32 @@ test "decode8086" {
         .{ .bytes = &[_]u8{ 0x2D, 0xE8, 0x03 }, .output = "sub ax, 1000" },
         .{ .bytes = &[_]u8{ 0x2C, 0xE2 }, .output = "sub al, -30" },
         .{ .bytes = &[_]u8{ 0x2C, 0x09 }, .output = "sub al, 9" },
+
+          // cmp
+        .{ .bytes = &[_]u8{ 0x3B, 0x18 }, .output = "cmp bx, [bx + si]" },
+        .{ .bytes = &[_]u8{ 0x3B, 0x5E, 0x00 }, .output = "cmp bx, [bp]" },
+        .{ .bytes = &[_]u8{ 0x83, 0xFE, 0x02, 0x00 }, .output = "cmp si, 2" },
+        .{ .bytes = &[_]u8{ 0x83, 0xFD, 0x02, 0x00 }, .output = "cmp bp, 2" },
+        .{ .bytes = &[_]u8{ 0x83, 0xF9, 0x08, 0x00 }, .output = "cmp cx, 8" },
+        .{ .bytes = &[_]u8{ 0x3B, 0x5E, 0x00 }, .output = "cmp bx, [bp]" },
+        .{ .bytes = &[_]u8{ 0x3B, 0x4F, 0x02 }, .output = "cmp cx, [bx + 2]" },
+        .{ .bytes = &[_]u8{ 0x3A, 0x7A, 0x04 }, .output = "cmp bh, [bp + si + 4]" },
+        .{ .bytes = &[_]u8{ 0x3B, 0x7B, 0x06 }, .output = "cmp di, [bp + di + 6]" },
+        .{ .bytes = &[_]u8{ 0x39, 0x18 }, .output = "cmp [bx + si], bx" },
+        .{ .bytes = &[_]u8{ 0x39, 0x5E, 0x00 }, .output = "cmp [bp], bx" },
+        .{ .bytes = &[_]u8{ 0x39, 0x5E, 0x00 }, .output = "cmp [bp], bx" },
+        .{ .bytes = &[_]u8{ 0x39, 0x4F, 0x02 }, .output = "cmp [bx + 2], cx" },
+        .{ .bytes = &[_]u8{ 0x38, 0x7A, 0x04 }, .output = "cmp [bp + si + 4], bh" },
+        .{ .bytes = &[_]u8{ 0x39, 0x7B, 0x06 }, .output = "cmp [bp + di + 6], di" },
+        .{ .bytes = &[_]u8{ 0x80, 0x3F, 0x22 }, .output = "cmp [bx], byte 34" },
+        .{ .bytes = &[_]u8{ 0x83, 0x3E, 0xE2, 0x12, 0x1D, 0x00 }, .output = "cmp [4834], word 29" },
+        .{ .bytes = &[_]u8{ 0x3B, 0x46, 0x00 }, .output = "cmp ax, [bp]" },
+        .{ .bytes = &[_]u8{ 0x3A, 0x00 }, .output = "cmp al, [bx + si]" },
+        .{ .bytes = &[_]u8{ 0x39, 0xD8 }, .output = "cmp ax, bx" },
+        .{ .bytes = &[_]u8{ 0x38, 0xE0 }, .output = "cmp al, ah" },
+        .{ .bytes = &[_]u8{ 0x3D, 0xE8, 0x03 }, .output = "cmp ax, 1000" },
+        .{ .bytes = &[_]u8{ 0x3C, 0xE2 }, .output = "cmp al, -30" },
+        .{ .bytes = &[_]u8{ 0x3C, 0x09 }, .output = "cmp al, 9" },
     };
 
     var output_buffer: [test_cases.len*32]u8 = undefined;
