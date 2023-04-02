@@ -67,10 +67,11 @@ fn decode8086(bytes: []const u8, output_writer: anytype) !void {
     while (bytes_read < bytes.len) {
         const start_bytes_read = bytes_read;
 
-        bytes_read += try Parsers.MOV_RegMemToFromReg   (bytes[bytes_read..], output_writer);
-        bytes_read += try Parsers.MOV_ImmediateToRegMem (bytes[bytes_read..], output_writer);
-        bytes_read += try Parsers.MOV_ImmediateToReg    (bytes[bytes_read..], output_writer);
-        bytes_read += try Parsers.MOV_MemAccumulator    (bytes[bytes_read..], output_writer);
+        bytes_read += try Parsers.RegMemToFromReg        (bytes[bytes_read..], output_writer);
+        bytes_read += try Parsers.ImmediateToRegMem      (bytes[bytes_read..], output_writer);
+        bytes_read += try Parsers.ImmediateToAccumulator (bytes[bytes_read..], output_writer);
+        bytes_read += try Parsers.MOV_ImmediateToReg     (bytes[bytes_read..], output_writer);
+        bytes_read += try Parsers.MOV_MemAccumulator     (bytes[bytes_read..], output_writer);
 
         // if no bytes were consumed we have an unknown instruction
         if (bytes_read <= start_bytes_read) {
@@ -94,37 +95,31 @@ const Parsers = struct { // this struct is used only as a namespace
     const rms = &[_][]const u8 { "bx + si", "bx + di", "bp + si", "bp + di", "si", "di", "bp", "bx" };
 
     /// Will try to extract given HeaderType struct from given bytes and if
-    /// that's possible will validate its type, advance bytes by the extracted
+    /// that's possible will validate its id, advance bytes by the extracted
     /// amount and return extracted header.
-    fn extractHeader(bytes: *[]const u8, comptime HeaderType: type, validate_type: u8) ?HeaderType {
-        // test if we have enough bytes
+    fn extractHeader(bytes: *[]const u8, comptime HeaderType: type, expected_ids: []const u8) ?HeaderType {
         if (bytes.*.len < @sizeOf(HeaderType)) {
             return null;
         }
 
-        // if so extract the header
         const header = @ptrCast(*align(1) const HeaderType, bytes.*.ptr).*;
-        // and validate type value
-        const header_type: u8 = header.type;
-        if (header_type != validate_type) {
-          return null;
-        }
+        const header_id: u8 = header.id;
+        for (expected_ids) |expected_id| {
+            if (header_id == expected_id) break;
+        } else return null;
 
-        // type is valid so advance the bytes slice by the header size
         bytes.* = bytes.*[@sizeOf(HeaderType)..];
-
-        // and return
         return header;
     }
 
-    /// Will use mov_header to calculate displacement size (if any) and extract
+    /// Will use header to calculate displacement size (if any) and extract
     /// its value (if any) and advance buffer by the amout of extracted bytes.
     /// If there is not enough bytes it will return error.
-    fn extractMOVDisplacement(bytes: *[]const u8, mov_header: anytype) !i16 {
+    fn extractDisplacement(bytes: *[]const u8, header: anytype) !i16 {
         var displacement_size: usize =
-             if (mov_header.mod == 0b00 and mov_header.rm == 0b110) 2 // special case
-        else if (mov_header.mod == 0b01) 1
-        else if (mov_header.mod == 0b10) 2
+             if (header.mod == 0b00 and header.rm == 0b110) 2 // special case
+        else if (header.mod == 0b01) 1
+        else if (header.mod == 0b10) 2
         else 0;
 
         if (displacement_size == 0) {
@@ -134,9 +129,9 @@ const Parsers = struct { // this struct is used only as a namespace
         if (bytes.*.len < displacement_size) {
             debug.print(
                 "not enough bytes for {d}-bit displacement\n" ++
-                "MOV: {}\n" ++
+                "header: {}\n" ++
                 "bytes left ({}): [{x}]\n",
-                .{displacement_size*8, mov_header, bytes.*.len, fmt.fmtSliceHexLower(bytes.*)}
+                .{displacement_size*8, header, bytes.*.len, fmt.fmtSliceHexLower(bytes.*)}
             );
             return error.NotEnoughBytes;
         }
@@ -148,15 +143,17 @@ const Parsers = struct { // this struct is used only as a namespace
         return displacement;
     }
 
-    /// Helper method for outputting MOV instructions which can have reversed
+    /// Helper method for outputting instructions which can have reversed
     /// source with destination based on 'd' field.
-    fn outputMOV(
-        d: u1,
+    fn output(
+        instruction: []const u8,
+        d: u1, // d == 1 flips dest with src
         comptime dest_format: []const u8, dest_data: anytype,
         comptime  src_format: []const u8,  src_data: anytype,
         output_writer: anytype
     ) !void {
-        try output_writer.writeAll("mov ");
+        try output_writer.writeAll(instruction);
+        try output_writer.writeAll(" ");
         if (d == 0) {
             try output_writer.print(dest_format, dest_data);
             try output_writer.writeAll(", ");
@@ -169,8 +166,9 @@ const Parsers = struct { // this struct is used only as a namespace
         try output_writer.writeAll("\n");
     }
 
-    /// Extracts common logic for outputing MOV based on the MOD field
-    fn outputMOVbasedOnMode(
+    /// Extracts common logic for outputing instruction based on the MOD field
+    fn outputBasedOnMode(
+        instruction: []const u8,
         d:   u1,
         mod: u2,
         rm:  u3,
@@ -187,12 +185,14 @@ const Parsers = struct { // this struct is used only as a namespace
                     // in here the displacement is interpreted as direct address
                     const direct_address = displacement;
 
-                    try outputMOV( d,
+                    try output(
+                        instruction, d,
                         "[{d}]",      .{direct_address},
                         value_format, value_data,
                         output_writer );
                 } else {
-                    try outputMOV( d,
+                    try output(
+                        instruction, d,
                         "[{s}]",      .{rms[rm]},
                         value_format, value_data,
                         output_writer );
@@ -202,18 +202,21 @@ const Parsers = struct { // this struct is used only as a namespace
             // memory mode with 8-bit or 16-bit displacement
             0b01, 0b10 => {
                 if (displacement == 0) {
-                    try outputMOV( d,
+                    try output(
+                        instruction, d,
                         "[{s}]",      .{rms[rm]},
                         value_format, value_data,
                         output_writer );
                 } else {
                     if (displacement < 0) {
-                        try outputMOV( d,
+                        try output(
+                            instruction, d,
                             "[{s} - {d}]", .{rms[rm], displacement*-1},
                             value_format,  value_data,
                             output_writer );
                     } else {
-                        try outputMOV( d,
+                        try output(
+                            instruction, d,
                             "[{s} + {d}]", .{rms[rm], displacement},
                             value_format,  value_data,
                             output_writer );
@@ -223,7 +226,8 @@ const Parsers = struct { // this struct is used only as a namespace
 
             // register mode
             0b11 => {
-                try outputMOV( d,
+                try output(
+                    instruction, d,
                     register_mode_format, .{register_mode_value},
                     value_format,         value_data,
                     output_writer );
@@ -231,106 +235,179 @@ const Parsers = struct { // this struct is used only as a namespace
         }
     }
 
-    /// MOV Register/memory to/from register
-    pub fn MOV_RegMemToFromReg(bytes: []const u8, output_writer: anytype) !usize {
-        const MOV = packed struct {
-            w: u1, d: u1, type: u6,
+    /// MOV/ADD/SUB/CMP Register/memory to/from register
+    pub fn RegMemToFromReg(bytes: []const u8, output_writer: anytype) !usize {
+        const Header = packed struct {
+            w: u1, d: u1, id: u6,
             rm: u3, reg: u3, mod: u2,
         };
 
         var work_buffer = bytes;
-        const mov = extractHeader(&work_buffer, MOV, 0b00_100010)
-            orelse return 0;
+        const header = extractHeader(&work_buffer, Header, &[_]u8{
+            0b00_100010,
+            0b00_000000,
+            0b00_001010,
+            0b00_001110,
+        }) orelse return 0;
 
-        const displacement = try extractMOVDisplacement(&work_buffer, mov);
+        const instruction = switch (header.id) {
+            0b100010 => "mov",
+            0b000000 => "add",
+            0b001010 => "sub",
+            0b001110 => "cmp",
+            else => null,
+        } orelse return 0;
 
-        try outputMOVbasedOnMode(
-            mov.d,
-            mov.mod,
-            mov.rm,
+        const displacement = try extractDisplacement(&work_buffer, header);
+
+        try outputBasedOnMode(
+            instruction,
+            header.d,
+            header.mod,
+            header.rm,
             displacement,
-            "{s}", .{regs[mov.w][mov.reg]},
-            "{s}", regs[mov.w][mov.rm],
+            "{s}", .{regs[header.w][header.reg]},
+            "{s}", regs[header.w][header.rm],
             output_writer,
         );
 
         return bytes.len - work_buffer.len;
     }
 
-    /// MOV Immediate to register/memory
-    pub fn MOV_ImmediateToRegMem(bytes: []const u8, output_writer: anytype) !usize {
-        const MOV = packed struct {
-            w: u1, type: u7,
-            rm: u3, unused: u3, mod: u2,
+    /// MOV/ADD/SUB/CMP Immediate to register/memory
+    pub fn ImmediateToRegMem(bytes: []const u8, output_writer: anytype) !usize {
+        const Header = packed struct {
+            w: u1, s:u1, id: u6,
+            rm: u3, type: u3, mod: u2,
         };
 
         var work_buffer = bytes;
-        const mov = extractHeader(&work_buffer, MOV, 0b0_1100011)
-            orelse return 0;
+        const header = extractHeader(&work_buffer, Header, &[_]u8{
+            0b00_110001,
+            0b00_100000,
+            0b00_100000,
+            0b00_100000,
+        }) orelse return 0;
+
+        const instruction =
+            if (header.id == 0b110001 and header.s == 0b1) "mov"
+            else switch (header.type) {
+                0b000 => "add",
+                0b101 => "sub",
+                0b111 => "cmp",
+                else => null,
+            } orelse return 0;
 
         // extract displacement here because after it we have data which we
         // also would like to extract before the switch to have it in one place
-        const displacement = try extractMOVDisplacement(&work_buffer, mov);
+        const displacement = try extractDisplacement(&work_buffer, header);
 
         // have to cast to not overflow in the add below
-        const data_size: u8 = @as(u8, mov.w)+1;
+        const data_size: u8 = @as(u8, header.w)+1;
         if (work_buffer.len < data_size) {
             debug.print(
-                "found immediate to register/memory MOV but not enough bytes for {d}-bit data\n" ++
-                "MOV: {}\n" ++
+                "found immediate to register/memory {s} but not enough bytes for {d}-bit data\n" ++
+                "header: {}\n" ++
                 "bytes left ({}): [{x}]\n",
-                .{data_size*8, mov, work_buffer.len, fmt.fmtSliceHexLower(work_buffer)}
+                .{instruction, data_size*8, header, work_buffer.len, fmt.fmtSliceHexLower(work_buffer)}
             );
             return error.NotEnoughBytes;
         }
-        const data: i16 = if (mov.w == 0)
+        // TODO(agabrys): handle header.s sign
+        const data: i16 = if (header.w == 0)
                  @ptrCast(*align(1) const  i8, work_buffer.ptr).*
             else @ptrCast(*align(1) const i16, work_buffer.ptr).*;
         work_buffer = work_buffer[data_size..];
-        const data_prefix = if (mov.w == 0) "byte" else "word";
+        const data_prefix = if (header.w == 0) "byte" else "word";
 
-        try outputMOVbasedOnMode(
+        try outputBasedOnMode(
+            instruction,
             0,
-            mov.mod,
-            mov.rm,
+            header.mod,
+            header.rm,
             displacement,
             "{s} {d}", .{data_prefix, data},
-            "[{s}]", rms[mov.rm],
+            "[{s}]", rms[header.rm],
             output_writer,
         );
+
+        return bytes.len - work_buffer.len;
+    }
+
+    /// ADD/SUB/CMP Immediate to accumulator
+    pub fn ImmediateToAccumulator(bytes: []const u8, output_writer: anytype) !usize {
+        const Header = packed struct {
+            w: u1, id: u7,
+        };
+
+        var work_buffer = bytes;
+        const header = extractHeader(&work_buffer, Header, &[_]u8{
+            0b0_0000010,
+            0b0_0010110,
+            0b0_0011110,
+        }) orelse return 0;
+
+        const instruction = switch (header.id) {
+            0b0000010 => "add",
+            0b0010110 => "sub",
+            0b0011110 => "cmp",
+            else => null, // TOOD(agabry): can I just return here?
+        } orelse return 0;
+
+        const register = if (header.w == 0) "al" else "ax";
+
+        // do we have enough bytes
+        const data_size: u8 = @as(u8, header.w)+1;
+        if (work_buffer.len < data_size) {
+            debug.print(
+                "found immediate to register {s} but not enough bytes for {d}-bit data\n" ++
+                "header: {}\n" ++
+                "bytes left ({}): [{x}]\n",
+                .{instruction, data_size*8, header, work_buffer.len, fmt.fmtSliceHexLower(work_buffer)}
+            );
+            return error.NotEnoughBytes;
+        }
+        const data = if (header.w == 0)   // \/ we are signed this time
+                 @ptrCast(*align(1) const  i8, work_buffer.ptr).*
+            else @ptrCast(*align(1) const i16, work_buffer.ptr).*;
+        work_buffer = work_buffer[data_size..];
+
+        try output( instruction, 0,
+            "{s}", .{register},
+            "{d}", .{data},
+            output_writer );
 
         return bytes.len - work_buffer.len;
     }
 
     /// MOV Immediate to register
     pub fn MOV_ImmediateToReg(bytes: []const u8, output_writer: anytype) !usize {
-        const MOV = packed struct {
-            reg: u3, w: u1, type: u4,
+        const Header = packed struct {
+            reg: u3, w: u1, id: u4,
         };
 
         var work_buffer = bytes;
-        const mov = extractHeader(&work_buffer, MOV, 0b000_1011)
+        const header = extractHeader(&work_buffer, Header, &[_]u8{ 0b000_1011 })
             orelse return 0;
 
         // do we have enough bytes
-        const data_size: u8 = @as(u8, mov.w)+1;
+        const data_size: u8 = @as(u8, header.w)+1;
         if (work_buffer.len < data_size) {
             debug.print(
                 "found immediate to register MOV but not enough bytes for {d}-bit data\n" ++
-                "MOV: {}\n" ++
+                "header: {}\n" ++
                 "bytes left ({}): [{x}]\n",
-                .{data_size*8, mov, work_buffer.len, fmt.fmtSliceHexLower(work_buffer)}
+                .{data_size*8, header, work_buffer.len, fmt.fmtSliceHexLower(work_buffer)}
             );
             return error.NotEnoughBytes;
         }
-        const data = if (mov.w == 0)   // \/ we are signed this time
+        const data = if (header.w == 0)   // \/ we are signed this time
                  @ptrCast(*align(1) const  i8, work_buffer.ptr).*
             else @ptrCast(*align(1) const i16, work_buffer.ptr).*;
-        // move by the data size - at least 1 byte, if mov.w is 1 then we have two bytes
         work_buffer = work_buffer[data_size..];
 
-        try outputMOV( 0,
-            "{s}", .{regs[mov.w][mov.reg]},
+        try output( "mov", 0,
+            "{s}", .{regs[header.w][header.reg]},
             "{d}", .{data},
             output_writer );
 
@@ -340,35 +417,35 @@ const Parsers = struct { // this struct is used only as a namespace
     /// MOV Memory to accumulator and Accumulator to Memory
     /// Two accmulator instructions in one function.
     /// The only difference is the order so the output will be
-    /// flipped around depending on the instruction type.
+    /// flipped around depending on the instruction id.
     pub fn MOV_MemAccumulator(bytes: []const u8, output_writer: anytype) !usize {
-        const MOV = packed struct {
-            w: u1, type: u7,
+        const Header = packed struct {
+            w: u1, id: u7,
         };
 
         var work_buffer = bytes;
-        const mov = extractHeader(&work_buffer, MOV, 0b0_1010000)
-             orelse extractHeader(&work_buffer, MOV, 0b0_1010001)
+        const header = extractHeader(&work_buffer, Header, &[_]u8{0b0_1010000, 0b0_1010001})
              orelse return 0;
 
         // do we have enough bytes
-        const address_size: u8 = @as(u8, mov.w)+1;
+        const address_size: u8 = @as(u8, header.w)+1;
         if (work_buffer.len < address_size) {
             debug.print(
                 "found memory to accumulator MOV but not enough bytes for {d}-bit address\n" ++
-                "MOV: {}\n" ++
+                "header: {}\n" ++
                 "bytes left ({}): [{x}]\n",
-                .{address_size*8, mov, work_buffer.len, fmt.fmtSliceHexLower(work_buffer)}
+                .{address_size*8, header, work_buffer.len, fmt.fmtSliceHexLower(work_buffer)}
             );
             return error.NotEnoughBytes;
         }
-        const address = if (mov.w == 0)
+        const address = if (header.w == 0)
                  @ptrCast(*align(1) const  u8, work_buffer.ptr).*
             else @ptrCast(*align(1) const u16, work_buffer.ptr).*;
         work_buffer = work_buffer[address_size..];
 
-        const flip: u1 = if (mov.type == 0b0_1010001) 1 else 0;
-        try outputMOV( flip,
+        const flip: u1 = if (header.id == 0b0_1010001) 1 else 0;
+        try output( "mov",
+            flip,
              "ax",   .{},
             "[{d}]", .{address},
             output_writer );
