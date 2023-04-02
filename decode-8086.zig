@@ -560,6 +560,31 @@ test "decode8086" {
         .{ .bytes = &[_]u8{ 0x04, 0xE2 }, .output = "add al, -30" },
         .{ .bytes = &[_]u8{ 0x04, 0x09 }, .output = "add al, 9" },
 
+          // subs
+        .{ .bytes = &[_]u8{ 0x2B, 0x18 }, .output = "sub bx, [bx + si]" },
+        .{ .bytes = &[_]u8{ 0x2B, 0x5E, 0x00 }, .output = "sub bx, [bp]" },
+        .{ .bytes = &[_]u8{ 0x83, 0xEE, 0x02, 0x00 }, .output = "sub si, 2" },
+        .{ .bytes = &[_]u8{ 0x83, 0xED, 0x02, 0x00 }, .output = "sub bp, 2" },
+        .{ .bytes = &[_]u8{ 0x83, 0xE9, 0x08, 0x00 }, .output = "sub cx, 8" },
+        .{ .bytes = &[_]u8{ 0x2B, 0x5E, 0x00 }, .output = "sub bx, [bp]" },
+        .{ .bytes = &[_]u8{ 0x2B, 0x4F, 0x02 }, .output = "sub cx, [bx + 2]" },
+        .{ .bytes = &[_]u8{ 0x2A, 0x7A, 0x04 }, .output = "sub bh, [bp + si + 4]" },
+        .{ .bytes = &[_]u8{ 0x2B, 0x7B, 0x06 }, .output = "sub di, [bp + di + 6]" },
+        .{ .bytes = &[_]u8{ 0x29, 0x18 }, .output = "sub [bx + si], bx" },
+        .{ .bytes = &[_]u8{ 0x29, 0x5E, 0x00 }, .output = "sub [bp], bx" },
+        .{ .bytes = &[_]u8{ 0x29, 0x5E, 0x00 }, .output = "sub [bp], bx" },
+        .{ .bytes = &[_]u8{ 0x29, 0x4F, 0x02 }, .output = "sub [bx + 2], cx" },
+        .{ .bytes = &[_]u8{ 0x28, 0x7A, 0x04 }, .output = "sub [bp + si + 4], bh" },
+        .{ .bytes = &[_]u8{ 0x29, 0x7B, 0x06 }, .output = "sub [bp + di + 6], di" },
+        .{ .bytes = &[_]u8{ 0x80, 0x2F, 0x22 }, .output = "sub [bx], byte 34" },
+        .{ .bytes = &[_]u8{ 0x83, 0x29, 0x1D, 0x00 }, .output = "sub [bx + di], word 29" },
+        .{ .bytes = &[_]u8{ 0x2B, 0x46, 0x00 }, .output = "sub ax, [bp]" },
+        .{ .bytes = &[_]u8{ 0x2A, 0x00 }, .output = "sub al, [bx + si]" },
+        .{ .bytes = &[_]u8{ 0x29, 0xD8 }, .output = "sub ax, bx" },
+        .{ .bytes = &[_]u8{ 0x28, 0xE0 }, .output = "sub al, ah" },
+        .{ .bytes = &[_]u8{ 0x2D, 0xE8, 0x03 }, .output = "sub ax, 1000" },
+        .{ .bytes = &[_]u8{ 0x2C, 0xE2 }, .output = "sub al, -30" },
+        .{ .bytes = &[_]u8{ 0x2C, 0x09 }, .output = "sub al, 9" },
     };
 
     var output_buffer: [test_cases.len*32]u8 = undefined;
