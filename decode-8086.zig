@@ -47,6 +47,9 @@ pub fn main() !void {
     // start by writting filename comment
     try stdout.print("; {s}\n\n", .{file_path});
 
+    // and the header which is necessary for nasm
+    try stdout.writeAll("bits 16\n\n");
+
     // then decode the binary file into asm
     decode8086(file_content, stdout) catch |err| {
         // and flush the buffered output
@@ -60,8 +63,6 @@ pub fn main() !void {
 
 /// Decodes 8086 instructions and writes ASM representation to given output writer
 fn decode8086(bytes: []const u8, output_writer: anytype) !void {
-    try output_writer.writeAll("bits 16\n\n");
-
     var bytes_read: usize = 0;
     while (bytes_read < bytes.len) {
         const start_bytes_read = bytes_read;
@@ -412,14 +413,12 @@ test "decode8086" {
         .{ .bytes = &[_]u8{ 0x88, 0x6E, 0x00 },        .output = "mov [bp], ch" },
     };
 
-    const header = "bits 16\n\n";
-    var failed_tests: usize = 0;
-
-    var output_buffer: [header.len+(test_cases.len*32)]u8 = undefined;
+    var output_buffer: [test_cases.len*32]u8 = undefined;
     var fbs = io.fixedBufferStream(&output_buffer);
     var output_writer = fbs.writer();
 
     // run tests
+    var failed_tests: usize = 0;
     for (test_cases) |test_case, index| {
         // reset the buffer at the end of the loop
         defer fbs.reset();
@@ -440,9 +439,8 @@ test "decode8086" {
             continue;
         };
 
-        // skip the header to get just the generated instruction
-        // and trim the new line at the end
-        const output = output_buffer[header.len..fbs.pos-1];
+        // trim the new line at the end
+        const output = output_buffer[0..fbs.pos-1];
 
         // compare
         if (mem.eql(u8, test_case.output, output) == false) {
@@ -474,10 +472,6 @@ test "decode8086" {
 
         var total_bytes_count : usize = 0;
         var total_output_len  : usize = 0;
-
-        mem.copy(u8, expected_output, header);
-        expected_output = expected_output[header.len..];
-        total_output_len += header.len;
 
         for (test_cases) |test_case| {
             mem.copy(u8, bytes, test_case.bytes);
