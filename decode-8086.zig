@@ -173,7 +173,8 @@ const Parsers = struct { // this struct is used only as a namespace
         mod: u2,
         rm:  u3,
         displacement: i16,
-        comptime value_format:        []const u8, value_data:          anytype,
+        data_prefix: []const u8,
+        comptime value_format:        []const u8, value:               anytype,
         comptime register_mode_format:[]const u8, register_mode_value: anytype,
         output_writer: anytype,
     ) !void {
@@ -187,14 +188,14 @@ const Parsers = struct { // this struct is used only as a namespace
 
                     try output(
                         instruction, d,
-                        "[{d}]",      .{direct_address},
-                        value_format, value_data,
+                        "[{d}]", .{direct_address},
+                        "{s}" ++ value_format, .{data_prefix, value},
                         output_writer );
                 } else {
                     try output(
                         instruction, d,
-                        "[{s}]",      .{rms[rm]},
-                        value_format, value_data,
+                        "[{s}]", .{rms[rm]},
+                        "{s}" ++ value_format, .{data_prefix, value},
                         output_writer );
                 }
             },
@@ -205,20 +206,20 @@ const Parsers = struct { // this struct is used only as a namespace
                     try output(
                         instruction, d,
                         "[{s}]",      .{rms[rm]},
-                        value_format, value_data,
+                        "{s}" ++ value_format, .{data_prefix, value},
                         output_writer );
                 } else {
                     if (displacement < 0) {
                         try output(
                             instruction, d,
                             "[{s} - {d}]", .{rms[rm], displacement*-1},
-                            value_format,  value_data,
+                            "{s}" ++ value_format, .{data_prefix, value},
                             output_writer );
                     } else {
                         try output(
                             instruction, d,
                             "[{s} + {d}]", .{rms[rm], displacement},
-                            value_format,  value_data,
+                            "{s}" ++ value_format, .{data_prefix, value},
                             output_writer );
                     }
                 }
@@ -229,7 +230,7 @@ const Parsers = struct { // this struct is used only as a namespace
                 try output(
                     instruction, d,
                     register_mode_format, .{register_mode_value},
-                    value_format,         value_data,
+                    value_format,         .{value},
                     output_writer );
             },
         }
@@ -266,7 +267,8 @@ const Parsers = struct { // this struct is used only as a namespace
             header.mod,
             header.rm,
             displacement,
-            "{s}", .{regs[header.w][header.reg]},
+            "",
+            "{s}", regs[header.w][header.reg],
             "{s}", regs[header.w][header.rm],
             output_writer,
         );
@@ -316,31 +318,19 @@ const Parsers = struct { // this struct is used only as a namespace
                  @ptrCast(*align(1) const  i8, work_buffer.ptr).*
             else @ptrCast(*align(1) const i16, work_buffer.ptr).*;
         work_buffer = work_buffer[data_size..];
-        const data_prefix = if (header.w == 0) "byte" else "word";
+        const data_prefix = if (header.w == 0) "byte " else "word ";
 
-        if (header.mod == 0b11) {
-            try outputBasedOnMode(
-                instruction,
-                0,
-                header.mod,
-                header.rm,
-                displacement,
-                "{d}", .{data},
-                "{s}", regs[header.w][header.rm],
-                output_writer,
-            );
-        } else {
-            try outputBasedOnMode(
-                instruction,
-                0,
-                header.mod,
-                header.rm,
-                displacement,
-                "{s} {d}", .{data_prefix, data},
-                "[{s}]", rms[header.rm],
-                output_writer,
-            );
-        }
+        try outputBasedOnMode(
+            instruction,
+            0,
+            header.mod,
+            header.rm,
+            displacement,
+            data_prefix,
+            "{d}", data,
+            "{s}", regs[header.w][header.rm],
+            output_writer,
+        );
 
         return bytes.len - work_buffer.len;
     }
