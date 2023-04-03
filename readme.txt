@@ -1,16 +1,30 @@
-8086 processor instructions decoder
+                           ┻━┻︵ \(°□°)/ ︵ ┻━┻
 
-Created as an exercise for https://www.computerenhance.com course.
+                  !!! decode-8086 the SECOND EDITION !!!
+
+   A way better and faster decoding with flexible instructions definitions.
+  Will not only print Your assembly but also provide You with all necessary
+                 information to do a cool 8086 CPU simulation!
+
+           It even has a cooler name - it's just 'D' now (⌐■_■)
+
+             Can Your previous decoder do that?  I guess NOT!
+     So grab Your Zig compiler and see how fast and cool this code is.
+
+                                               provided to You by:
+                                                      Arkadiusz (aka Ark)
+                                                      Gabryś    (aka Gabr)
+
+                                                        (╯°□°)╯︵ ┻━┻
+
+                                                 Peace Out  =^..^=
 
 
-Build with zig 0.10.1
-https://ziglang.org/download/#release-0.10.1
 
-Compile: zig build-exe decode-8086.zig
-Tests:   zig test decode-8086.zig
+ If you were looking for a real readme...
 
-Run:  ./decode-8086 ..\materials_repo\perfaware\part1\listing_0038_many_register_mov
+                ...then I guess You're out of luck ¯\_(ツ)_/¯
 
-The materials files are taken from the Computer Enhance course repository:
-https://github.com/cmuratori/computer_enhance/
+                         start looking at the actual code You NOOB -.-
+
 
