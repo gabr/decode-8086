@@ -1,11 +1,2 @@
-decode-8086
-*.s
-*.o
-*.exe
-*.exe.obj
-*.pdb
-
-# ignore helper scripts
-*.bat
-*.sh
-*.ps1
+zig-out/
+zig-cache/
