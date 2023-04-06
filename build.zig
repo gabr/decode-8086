@@ -8,7 +8,7 @@ const process = std.process;
 // runner.
 pub fn build(b: *std.Build) void {
     // Validate if the build is being run with the expected compiler version
-    validateZigVersion(b, "0.11.0-dev.2398+66520c834");
+    validateZigVersion(b, "0.11.0-dev");
 
     // Standard target options allows the person running `zig build` to choose
     // what target to build for. Here we do not override the defaults, which
@@ -77,19 +77,19 @@ pub fn build(b: *std.Build) void {
 
 /// Runs "zig version" and compares with given value
 /// If versions are not equal it will halt the build process.
-fn validateZigVersion(b: *std.Build, expected_version: []const u8) void {
+fn validateZigVersion(b: *std.Build, expected_version_prefix: []const u8) void {
     const version = mem.trimRight(u8, b.exec(&[_][]const u8{ "zig", "version" }), "\n\t\r");
-    if (false == mem.eql(u8, expected_version, version)) {
+    if (false == mem.startsWith(u8, version, expected_version_prefix)) {
         debug.print(
             "\n" ++
             "  Stop, stop, stop!\n" ++
             "  You're going to take someone's eye out.\n" ++
             "  Besides, you're executing it wrong.\n" ++
-            "  It's zig version: {s}\n" ++
+            "  It's zig version: {s}*\n" ++
             "               not: {s}\n" ++
             "\n" ++
             "  Make sure to use the zig compiler in version: {s}\n\n",
-            .{ expected_version, version, expected_version } );
+            .{ expected_version_prefix, version, expected_version_prefix } );
         process.exit(1);
     }
 }
