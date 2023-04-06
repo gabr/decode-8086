@@ -1,9 +1,15 @@
-const std = @import("std");
+const std     = @import("std");
+const mem     = std.mem;
+const debug   = std.debug;
+const process = std.process;
 
 // Although this function looks imperative, note that its job is to
 // declaratively construct a build graph that will be executed by an external
 // runner.
 pub fn build(b: *std.Build) void {
+    // Validate if the build is being run with the expected compiler version
+    validateZigVersion(b, "0.11.0-dev.2398+66520c834");
+
     // Standard target options allows the person running `zig build` to choose
     // what target to build for. Here we do not override the defaults, which
     // means any target is allowed, and the default is native. Other options
@@ -67,4 +73,23 @@ pub fn build(b: *std.Build) void {
     // running the unit tests.
     const test_step = b.step("test", "Run unit tests");
     test_step.dependOn(&exe_tests.step);
+}
+
+/// Runs "zig version" and compares with given value
+/// If versions are not equal it will halt the build process.
+fn validateZigVersion(b: *std.Build, expected_version: []const u8) void {
+    const version = mem.trimRight(u8, b.exec(&[_][]const u8{ "zig", "version" }), "\n\t\r");
+    if (false == mem.eql(u8, expected_version, version)) {
+        debug.print(
+            "\n" ++
+            "  Stop, stop, stop!\n" ++
+            "  You're going to take someone's eye out.\n" ++
+            "  Besides, you're executing it wrong.\n" ++
+            "  It's zig version: {s}\n" ++
+            "               not: {s}\n" ++
+            "\n" ++
+            "  Make sure to use the zig compiler in version: {s}\n\n",
+            .{ expected_version, version, expected_version } );
+        process.exit(1);
+    }
 }
