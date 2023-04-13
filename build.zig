@@ -78,7 +78,7 @@ pub fn build(b: *std.Build) void {
 /// Runs "zig version" and compares with given value
 /// If versions are not equal it will halt the build process.
 fn validateZigVersion(b: *std.Build, expected_version_prefix: []const u8) void {
-    const version = mem.trimRight(u8, b.exec(&[_][]const u8{ "zig", "version" }), "\n\t\r");
+    const version = mem.trimRight(u8, b.exec(&[_][]const u8{ b.zig_exe, "version" }), "\n\t\r");
     if (false == mem.startsWith(u8, version, expected_version_prefix)) {
         debug.print(
             "\n" ++
