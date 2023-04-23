@@ -8,7 +8,7 @@ const process = std.process;
 // runner.
 pub fn build(b: *std.Build) void {
     // Validate if the build is being run with the expected compiler version
-    validateZigVersion(b, "0.11.0-dev");
+    validateZigVersion(b, "0.11.0-dev.2725");
 
     // Standard target options allows the person running `zig build` to choose
     // what target to build for. Here we do not override the defaults, which
@@ -33,12 +33,12 @@ pub fn build(b: *std.Build) void {
     // This declares intent for the executable to be installed into the
     // standard location when the user invokes the "install" step (the default
     // step when running `zig build`).
-    exe.install();
+    b.installArtifact(exe);
 
     // This *creates* a RunStep in the build graph, to be executed when another
     // step is evaluated that depends on it. The next line below will establish
     // such a dependency.
-    const run_cmd = exe.run();
+    const run_cmd = b.addRunArtifact(exe);
 
     // By making the run step depend on the install step, it will be run from the
     // installation directory rather than directly from within the cache directory.
@@ -52,7 +52,9 @@ pub fn build(b: *std.Build) void {
         run_cmd.addArgs(args);
     } else {
         // default args if nothing was specified
-        run_cmd.addArg("../materials_repo/perfaware/part1/listing_0038_many_register_mov");
+        debug.print("no args given - using default one", .{});
+        //run_cmd.addArg("../materials_repo/perfaware/part1/listing_0038_many_register_mov");
+        run_cmd.addArg("../materials_repo/perfaware/part1/listing_0039_more_movs");
     }
 
     // This creates a build step. It will be visible in the `zig build --help` menu,

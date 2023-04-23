@@ -1,0 +1,118 @@
+# 23.04.2023 (niedziela) Katowice
+    Coś dziwnego się działo i wyglądało to tak jakbym źle parsował instruction_definitions_strings
+    Poniżej komendy z gdb i wycinek problematycznego kodu wraz z komentarzem wyjaśniającym.
+
+
+    gdb ./zig-out/bin/d
+    b d.zig:280
+    r ../materials_repo/perfaware/part1/listing_0038_many_register_mov
+    info local
+    into types
+
+    p fields
+    p fields.ptr
+    x/24tb fields.ptr
+
+    x/3tb fields.ptr
+    x/3tb fields.ptr+1
+    x/3tb fields.ptr+2
+
+    layout asm
+
+
+
+    const InstructionDefinition = result: {
+        // to create InstructionDefinition struct we have to count
+        // the maximum number of fields in any instruction
+        var max_fields: usize = 0;
+        for (instruction_definitions_strings) |definition| {
+            var fields_iterator = mem.tokenize(u8, definition, instruction_definitions_separators);
+            // skip type
+            _ = fields_iterator.next().?;
+            // count fields
+            var fields: usize = 0;
+            while (fields_iterator.next()) |_| : (fields += 1) {}
+            // save max
+            max_fields = math.max(max_fields, fields);
+        }
+
+        // now we know how big the fields should be
+        break :result struct {
+            type:            InstructionType,
+            fields_buffer:   [max_fields]Field,
+            fields_count:    u8,
+
+            const Self = @This();
+
+            pub fn fields(self: Self) []const Field {                        <------- nie mogę tak zrobić
+                return self.fields_buffer[0..self.fields_count];
+            }
+        };
+    };
+
+    pub fn toFields(i: InstructionDefinition) []const Field {                <------- ani tak
+        return i.fields_buffer[0..i.fields_count];
+    }
+
+    pub fn debugPrintInstructionDefinitions() void {
+        // TODO(agabrys): No więc wygląda na to, że gdy robi się coś compile
+        // time to jest to potem optymalizowane i usuwane i przestawianie, więc
+        // odnoszenie się do tego po slicach wyprodukowanych z funkcji sprawia,
+        // że kompilator przestaje widzieć że ten fragment pamięci jest używany
+        // i go sobie przestawia i adresy są złe, więc trzeba te slicy tworzyś
+        // sobie ręcznie - bez funkcji, albo iterować jak człowiek po indeksach
+        // - dobranoc dziękuję, miałem iść spać dwie godziny temu jest północ niedziela
+        debug.print("{any}\n", .{instruction_definitions[0]});
+        debug.print("----\n", .{});
+        debug.print("{any}\n", .{instruction_definitions[0].fields()});
+        debug.print("----\n", .{});
+        debug.print("{any}\n", .{instruction_definitions[0].fields()[0]});
+        debug.print("{any}\n", .{instruction_definitions[0].fields()[1]});
+        debug.print("{any}\n", .{instruction_definitions[0].fields()[2]});
+        debug.print("{any}\n", .{instruction_definitions[0].fields()[3]});
+        debug.print("{any}\n", .{instruction_definitions[0].fields()[4]});
+        debug.print("----\n", .{});
+        const fields = instruction_definitions[0].fields();
+        const errorField = fields[2];
+        debug.print("  {s}\n", .{@typeName(@TypeOf(fields))});
+        debug.print("  {any}\n", .{@alignOf(@TypeOf(fields))});
+        debug.print("{any}\n", .{fields[0]});
+        debug.print("{any}\n", .{fields[1]});
+        debug.print("{any}\n", .{fields[2]});
+        debug.print("the error starts here: {any}\n", .{errorField});
+        debug.print("{any}\n", .{fields[3]});
+        debug.print("{any}\n", .{fields[4]});
+        debug.print("the error starts here: {any}\n", .{errorField});
+        for (fields, 0..) |f, i| {
+            debug.print("  {d}: {any}\n", .{i, f});
+        }
+        debug.print("----\n", .{});
+        for (instruction_definitions[0].fields_buffer[0..]) |f| {
+            debug.print("  {any}\n", .{f});
+        }
+        debug.print("  {s}\n", .{@typeName(@TypeOf(instruction_definitions[0].fields_buffer[0..]))});
+        debug.print("  {any}\n", .{@alignOf(@TypeOf(instruction_definitions[0].fields_buffer[0..]))});
+        debug.print("----\n", .{});
+        const fields2 = toFields(instruction_definitions[0]);
+        debug.print("  {s}\n", .{@typeName(@TypeOf(fields2))});
+        for (fields2) |f| {
+            debug.print("  {any}\n", .{f});
+        }
+        debug.print("----\n", .{});
+        for (instruction_definitions[0].fields_buffer) |f| {
+            debug.print("  {any}\n", .{f});
+        }
+        //for (instruction_definitions) |d| {
+        //    debug.print(
+        //        "type: {}\n" ++
+        //        "fields({d}): [\n",
+        //        .{ d.type, d.fields_count });
+
+        //    for (d.fields()) |f| {
+        //        debug.print("  {any}\n", .{f});
+        //        debug.print("  {{ {}, {b}, {d} }}\n", .{f.type, f.value, f.bits_count});
+        //    }
+
+        //    debug.print("]\n", .{});
+        //}
+    }
