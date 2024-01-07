@@ -17,7 +17,7 @@ pub fn main() !void {
     const allocator = arena.allocator();
 
     // handle args
-    var args = try process.argsAlloc(allocator);
+    const args = try process.argsAlloc(allocator);
     defer process.argsFree(allocator, args);
 
     //debug.print("args: {d}:\n  {s}\n", .{args.len, try mem.join(allocator, "\n  ", args)});
@@ -34,13 +34,13 @@ pub fn main() !void {
     }
 
     // open file
-    var cwd = try process.getCwdAlloc(allocator);
-    var file_absolute_path = try fs.path.resolve(allocator, &[_][]const u8{cwd, file_path});
+    const cwd = try process.getCwdAlloc(allocator);
+    const file_absolute_path = try fs.path.resolve(allocator, &[_][]const u8{cwd, file_path});
     //debug.print("file_absolute_path: {s}\n", .{file_absolute_path});
     const file = try fs.openFileAbsolute(file_absolute_path, .{});
     defer file.close();
 
-    //const file_content = try file.readToEndAlloc(allocator, math.maxInt(usize));
+    //const file_content = try file.readToEndAlloc(allocator, @max(usize));
     //debug.print("bytes to decode ({}): {x}\n", .{file_content.len, fmt.fmtSliceHexLower(file_content)});
     //try file.seekTo(0);
     // create input reader
@@ -126,8 +126,8 @@ const CPU8086 = struct {
                     for (definition.fields_buffer[0..definition.fields_count]) |field| {
                         //debug.print("instruction_bytes: [{x}]\n", .{fmt.fmtSliceHexLower(instruction_bytes.slice())});
                         if (false == field.isPresent(
-                                @intCast(u2, field_values[@enumToInt(FieldType.mod)]),
-                                @intCast(u1, field_values[@enumToInt(FieldType.w)]))) {
+                                @intCast(field_values[@intFromEnum(FieldType.mod)]),
+                                @intCast(field_values[@intFromEnum(FieldType.w)]))) {
                             continue;
                         }
 
@@ -147,8 +147,8 @@ const CPU8086 = struct {
                         }
 
                         // extract the field value
-                        const mask: u8 = @intCast(u8, ((@as(u16, 1) << @intCast(u4, field.bits_count)) - 1) << @intCast(u4, (8 - field.bits_count - bits_count)));
-                        const value: u8 = (current_byte & mask) >> @intCast(u3, (8 - bits_count - field.bits_count));
+                        const mask: u8 = @intCast(((@as(u16, 1) << @intCast(field.bits_count)) - 1) << @intCast(8 - field.bits_count - bits_count));
+                        const value: u8 = (current_byte & mask) >> @intCast(8 - bits_count - field.bits_count);
                         //debug.print("current_byte: {b}, mask: {b}, value: {b}\n", .{current_byte, mask, value});
                         bits_count += field.bits_count;
 
@@ -158,7 +158,7 @@ const CPU8086 = struct {
                                 break false;
                             }
                         } else {
-                            field_values[@enumToInt(field.type)] = value;
+                            field_values[@intFromEnum(field.type)] = value;
                         }
                     }
                     // if we looped through all fields and all constant matched we found the instructino
@@ -186,7 +186,7 @@ const CPU8086 = struct {
             .type        = instruction_definition.type,
             .dest        = .{ .type = .register, .register = 0, .is_wide = false, .value = 0 },
             .src         = .{ .type = .register, .register = 0, .is_wide = false, .value = 0 },
-            .bytes_count = @intCast(u8, instruction_bytes.len),
+            .bytes_count = @intCast(instruction_bytes.len),
         };
     }
 
@@ -263,7 +263,7 @@ const CPU8086 = struct {
             var fields: usize = 0;
             while (fields_iterator.next()) |_| : (fields += 1) {}
             // save max
-            max_fields = math.max(max_fields, fields);
+            max_fields = @max(max_fields, fields);
         }
 
         // now we know how big the fields should be

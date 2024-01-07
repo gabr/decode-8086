@@ -8,7 +8,7 @@ const process = std.process;
 // runner.
 pub fn build(b: *std.Build) void {
     // Validate if the build is being run with the expected compiler version
-    validateZigVersion(b, "0.11.0-dev.2725");
+    validateZigVersion(b, "0.12.0-dev.1879");
 
     // Standard target options allows the person running `zig build` to choose
     // what target to build for. Here we do not override the defaults, which
@@ -52,7 +52,7 @@ pub fn build(b: *std.Build) void {
         run_cmd.addArgs(args);
     } else {
         // default args if nothing was specified
-        debug.print("no args given - using default one", .{});
+        debug.print("no args given - using default one\n", .{});
         //run_cmd.addArg("../materials_repo/perfaware/part1/listing_0038_many_register_mov");
         run_cmd.addArg("../materials_repo/perfaware/part1/listing_0039_more_movs");
     }
@@ -80,7 +80,7 @@ pub fn build(b: *std.Build) void {
 /// Runs "zig version" and compares with given value
 /// If versions are not equal it will halt the build process.
 fn validateZigVersion(b: *std.Build, expected_version_prefix: []const u8) void {
-    const version = mem.trimRight(u8, b.exec(&[_][]const u8{ b.zig_exe, "version" }), "\n\t\r");
+    const version = mem.trimRight(u8, b.run(&[_][]const u8{ b.zig_exe, "version" }), "\n\t\r");
     if (false == mem.startsWith(u8, version, expected_version_prefix)) {
         debug.print(
             "\n" ++
