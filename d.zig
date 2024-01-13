@@ -76,6 +76,29 @@ const CPU8086 = struct {
         MOV,
     };
 
+    pub const Register = enum(u16) { // u16 to match with value field in InstructionTarget
+        AL, AX, // REG 000 W 0 and 1
+        CL, CX, // REG 001 W 0 and 1
+        DL, DX, // REG 010 W 0 and 1
+        BL, BX, // REG 011 W 0 and 1
+        AH, SP, // REG 100 W 0 and 1
+        CH, BP, // REG 101 W 0 and 1
+        DH, SI, // REG 110 W 0 and 1
+        BH, DI, // REG 111 W 0 and 1
+
+        pub fn isWide(self: @This()) bool {
+            return switch(self) {
+              .AL, .CL, .DL, .BL, .AH, .CH, .DH, .BH => false,
+              .AX, .CX, .DX, .BX, .SP, .BP, .SI, .DI => true,
+            };
+        }
+
+        pub fn fromFields(reg: u3, w: u1) Register {
+            const big_reg: u16 = @intCast(reg);
+            return @enumFromInt((big_reg*2)+w);
+        }
+    };
+
     pub const TargetType = enum(u8) {
         register,
         memory,
@@ -85,15 +108,22 @@ const CPU8086 = struct {
 
     pub const InstructionTarget = struct {
         type: TargetType,
-        register: u3,
+        // other fields have different meaning depending on the type
         is_wide: bool,
-        // has different meaning depending on type
         value: u16,
+
+        pub fn register(reg: Register) InstructionTarget {
+            return .{
+                .type    = .register,
+                .is_wide = reg.isWide(),
+                .value   = @intFromEnum(reg),
+            };
+        }
     };
 
     pub const Instruction = struct {
         type:        InstructionType,
-        dest:        InstructionTarget,
+        dst:         InstructionTarget,
         src:         InstructionTarget,
         bytes_count: u8,
     };
@@ -181,11 +211,31 @@ const CPU8086 = struct {
             definition_index,
             instruction_definitions_strings[definition_index] });
 
-        // TODO(agabrys): determine dest and src
+        // determine destination and source
+        var instruction: Instruction = undefined;
+        instruction.type = instruction_definition.type;
+
+        if (instruction_definition.hasField(.d)) {
+            if (!instruction_definition.hasField(.reg)) {
+                return error.MissingRegFieldInInstructionDefinition;
+            }
+            if (!instruction_definition.hasField(.w)) {
+                return error.MissingWFieldInInstructionDefinition;
+            }
+
+            const d:   u1 = @intCast(field_values[@intFromEnum(FieldType.d)]);
+            const w:   u1 = @intCast(field_values[@intFromEnum(FieldType.w)]);
+            const reg: u3 = @intCast(field_values[@intFromEnum(FieldType.reg)]);
+            const register = Register.fromFields(reg, w);
+            if (d == 0) { instruction.src = InstructionTarget.register(register); }
+            else        { instruction.dst = InstructionTarget.register(register); }
+        }
+
+        // TODO: decode dest and src
         return .{
-            .type        = instruction_definition.type,
-            .dest        = .{ .type = .register, .register = 0, .is_wide = false, .value = 0 },
-            .src         = .{ .type = .register, .register = 0, .is_wide = false, .value = 0 },
+            .type       = instruction_definition.type,
+            .dst        = .{ .type = .register, .is_wide = false, .value = 0 },
+            .src        = .{ .type = .register, .is_wide = false, .value = 0 },
             .bytes_count = @intCast(instruction_bytes.len),
         };
     }
@@ -271,6 +321,13 @@ const CPU8086 = struct {
             type:            InstructionType,
             fields_buffer:   [max_fields]Field,
             fields_count:    u8,
+
+            pub fn hasField(self: @This(), field_type: FieldType) bool {
+                for (self.fields_buffer[0..self.fields_count]) |f| {
+                    if (f.type == field_type) return true;
+                }
+                return false;
+            }
         };
     };
 

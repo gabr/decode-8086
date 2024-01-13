@@ -52,9 +52,10 @@ pub fn build(b: *std.Build) void {
         run_cmd.addArgs(args);
     } else {
         // default args if nothing was specified
-        debug.print("no args given - using default one\n", .{});
+        const arg = "../materials_repo/perfaware/part1/listing_0039_more_movs";
+        debug.print("no args given - using default one: {s}\n", .{arg});
         //run_cmd.addArg("../materials_repo/perfaware/part1/listing_0038_many_register_mov");
-        run_cmd.addArg("../materials_repo/perfaware/part1/listing_0039_more_movs");
+        run_cmd.addArg(arg);
     }
 
     // This creates a build step. It will be visible in the `zig build --help` menu,
