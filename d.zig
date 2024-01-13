@@ -76,7 +76,7 @@ const CPU8086 = struct {
         MOV,
     };
 
-    pub const Register = enum(u16) { // u16 to match with value field in InstructionTarget
+    pub const Register = enum(u8) {
         AL, AX, // REG 000 W 0 and 1
         CL, CX, // REG 001 W 0 and 1
         DL, DX, // REG 010 W 0 and 1
@@ -86,39 +86,47 @@ const CPU8086 = struct {
         DH, SI, // REG 110 W 0 and 1
         BH, DI, // REG 111 W 0 and 1
 
-        pub fn isWide(self: @This()) bool {
-            return switch(self) {
-              .AL, .CL, .DL, .BL, .AH, .CH, .DH, .BH => false,
-              .AX, .CX, .DX, .BX, .SP, .BP, .SI, .DI => true,
-            };
-        }
-
         pub fn fromFields(reg: u3, w: u1) Register {
-            const big_reg: u16 = @intCast(reg);
-            return @enumFromInt((big_reg*2)+w);
+            const byte_reg: u8 = @intCast(reg);
+            return @enumFromInt((byte_reg*2)+w);
         }
     };
 
-    pub const TargetType = enum(u8) {
-        register,
-        memory,
-        immediate,
-        direct_memory,
+    pub const EffectiveAddress = enum(u8) {
+        bx_si, bx_di, bp_si, bp_di, si, di, bp, bx,
     };
 
-    pub const InstructionTarget = struct {
-        type: TargetType,
-        // other fields have different meaning depending on the type
-        is_wide: bool,
-        value: u16,
+    pub const EffectiveAddressTarget = struct {
+        type:            EffectiveAddress,
+        has_data_offset: bool,
+        is_wide:         bool,
+        data_offset:     u16,
 
-        pub fn register(reg: Register) InstructionTarget {
+        pub fn fromFields(
+            rm: u3,
+            mod: u2,
+            data_lo: u8,
+            data_hi: u8
+        ) EffectiveAddressTarget {
+            const data_offset: u16 =
+                     if (mod == 0b00) 0
+                else if (mod == 0b01) @intCast(data_lo)
+                else if (mod == 0b10) @bitCast([_]u8{data_hi, data_lo})
+                else unreachable;
+
             return .{
-                .type    = .register,
-                .is_wide = reg.isWide(),
-                .value   = @intFromEnum(reg),
+                .type            = @enumFromInt(rm),
+                .has_data_offset = mod != 0b00,
+                .is_wide         = mod == 0b10,
+                .data_offset     = data_offset,
             };
         }
+    };
+
+    pub const InstructionTarget = union(enum) {
+        register: Register,
+        direct_address: u16,
+        effective_address: EffectiveAddressTarget,
     };
 
     pub const Instruction = struct {
@@ -214,30 +222,35 @@ const CPU8086 = struct {
         // determine destination and source
         var instruction: Instruction = undefined;
         instruction.type = instruction_definition.type;
+        instruction.bytes_count = @intCast(instruction_bytes.len);
 
         if (instruction_definition.hasField(.d)) {
-            if (!instruction_definition.hasField(.reg)) {
-                return error.MissingRegFieldInInstructionDefinition;
-            }
-            if (!instruction_definition.hasField(.w)) {
-                return error.MissingWFieldInInstructionDefinition;
-            }
-
             const d:   u1 = @intCast(field_values[@intFromEnum(FieldType.d)]);
+            const mod: u2 = @intCast(field_values[@intFromEnum(FieldType.mod)]);
             const w:   u1 = @intCast(field_values[@intFromEnum(FieldType.w)]);
             const reg: u3 = @intCast(field_values[@intFromEnum(FieldType.reg)]);
-            const register = Register.fromFields(reg, w);
-            if (d == 0) { instruction.src = InstructionTarget.register(register); }
-            else        { instruction.dst = InstructionTarget.register(register); }
+            const rm:  u3 = @intCast(field_values[@intFromEnum(FieldType.rm)]);
+            const data_lo = field_values[@intFromEnum(FieldType.data_lo)];
+            const data_hi = field_values[@intFromEnum(FieldType.data_hi)];
+
+            const reg_w_target = InstructionTarget { .register = Register.fromFields(reg, w) };
+
+            const mod_w_rm_target =
+                if (mod == 0b11)
+                    InstructionTarget { .register = Register.fromFields(rm, w) }
+                else
+                    if (rm == 0b110 and mod == 0b00) InstructionTarget {
+                        .direct_address = @bitCast([_]u8{data_hi, data_lo})
+                    }
+                    else InstructionTarget {
+                        .effective_address = EffectiveAddressTarget.fromFields(rm, mod, data_lo, data_hi)
+                    };
+
+            if (d == 0) { instruction.src = reg_w_target; instruction.dst = mod_w_rm_target; }
+            else        { instruction.dst = reg_w_target; instruction.src = mod_w_rm_target; }
         }
 
-        // TODO: decode dest and src
-        return .{
-            .type       = instruction_definition.type,
-            .dst        = .{ .type = .register, .is_wide = false, .value = 0 },
-            .src        = .{ .type = .register, .is_wide = false, .value = 0 },
-            .bytes_count = @intCast(instruction_bytes.len),
-        };
+        return instruction;
     }
 
     // Writes given instruction in Assembly representation using given writer
