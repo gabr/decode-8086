@@ -92,41 +92,78 @@ const CPU8086 = struct {
         }
     };
 
+    pub const SegmentRegister = enum(u2) {
+        ES, CS, SS, DS,
+
+        pub fn fromFields(sr: u2) SegmentRegister {
+            return @enumFromInt(sr);
+        }
+    };
+
+    pub const AddressTarget = struct {
+        is_wide: bool,
+        address: u16,
+
+        pub fn fromFields(w: u1, addr_lo: u8, addr_hi: u8) AddressTarget {
+            return if (w == 0) .{ .is_wide = false, .address = @intCast(addr_lo) }
+                   else        .{ .is_wide = true,  .address = @bitCast([_]u8{addr_hi, addr_lo}) };
+        }
+    };
+
     pub const EffectiveAddress = enum(u8) {
         bx_si, bx_di, bp_si, bp_di, si, di, bp, bx,
     };
 
     pub const EffectiveAddressTarget = struct {
         type:            EffectiveAddress,
-        has_data_offset: bool,
+        has_disp_offset: bool,
         is_wide:         bool,
-        data_offset:     u16,
+        disp_offset:     u16,
 
-        pub fn fromFields(
-            rm: u3,
-            mod: u2,
-            data_lo: u8,
-            data_hi: u8
-        ) EffectiveAddressTarget {
-            const data_offset: u16 =
+        pub fn fromFields(rm: u3, mod: u2, disp_lo: u8, disp_hi: u8) EffectiveAddressTarget {
+            const disp_offset: u16 =
                      if (mod == 0b00) 0
-                else if (mod == 0b01) @intCast(data_lo)
-                else if (mod == 0b10) @bitCast([_]u8{data_hi, data_lo})
+                else if (mod == 0b01) @intCast(disp_lo)
+                else if (mod == 0b10) @bitCast([_]u8{disp_hi, disp_lo})
                 else unreachable;
 
             return .{
                 .type            = @enumFromInt(rm),
-                .has_data_offset = mod != 0b00,
+                .has_disp_offset = mod != 0b00,
                 .is_wide         = mod == 0b10,
-                .data_offset     = data_offset,
+                .disp_offset     = disp_offset,
             };
         }
     };
 
+    pub const ImmediateTarget = struct {
+        is_wide: bool,
+        data:    u16,
+
+        pub fn fromFields(w: u1, data_lo: u8, data_hi: u8) ImmediateTarget {
+            return if (w == 0) .{ .is_wide = false, .data = @intCast(data_lo) }
+                   else        .{ .is_wide = true,  .data = @bitCast([_]u8{data_hi, data_lo}) };
+        }
+    };
+
     pub const InstructionTarget = union(enum) {
-        register: Register,
-        direct_address: u16,
+        register:          Register,
+        segment_register:  SegmentRegister,
+        address:           AddressTarget,
         effective_address: EffectiveAddressTarget,
+        immediate:         ImmediateTarget,
+
+        pub fn fromFields(mod: u2, rm: u3, w: u1, disp_lo: u8, disp_hi: u8) InstructionTarget {
+            if (mod == 0b11) return InstructionTarget {
+                .register = Register.fromFields(rm, w)
+            };
+            if (mod == 0b00 and rm == 0b110) return InstructionTarget {
+                .address= AddressTarget.fromFields(1, disp_lo, disp_hi)
+            };
+            return InstructionTarget {
+                .effective_address = EffectiveAddressTarget.fromFields(rm, mod, disp_lo, disp_hi)
+            };
+        }
     };
 
     pub const Instruction = struct {
@@ -224,30 +261,43 @@ const CPU8086 = struct {
         instruction.type = instruction_definition.type;
         instruction.bytes_count = @intCast(instruction_bytes.len);
 
-        if (instruction_definition.hasField(.d)) {
-            const d:   u1 = @intCast(field_values[@intFromEnum(FieldType.d)]);
-            const mod: u2 = @intCast(field_values[@intFromEnum(FieldType.mod)]);
-            const w:   u1 = @intCast(field_values[@intFromEnum(FieldType.w)]);
-            const reg: u3 = @intCast(field_values[@intFromEnum(FieldType.reg)]);
-            const rm:  u3 = @intCast(field_values[@intFromEnum(FieldType.rm)]);
-            const data_lo = field_values[@intFromEnum(FieldType.data_lo)];
-            const data_hi = field_values[@intFromEnum(FieldType.data_hi)];
+        // cast field values to expected types to satisfy the mighty compiler \('^')/
+        const d       = getFieldInType(u1, FieldType.d,       1, instruction_definition, field_values);
+        const w       = getFieldInType(u1, FieldType.w,       1, instruction_definition, field_values);
+        const mod     = getFieldInType(u2, FieldType.mod,     0, instruction_definition, field_values);
+        const reg     = getFieldInType(u3, FieldType.reg,     0, instruction_definition, field_values);
+        const rm      = getFieldInType(u3, FieldType.rm,      0, instruction_definition, field_values);
+        const sr      = getFieldInType(u2, FieldType.sr,      0, instruction_definition, field_values);
+        const disp_lo = getFieldInType(u8, FieldType.disp_lo, 0, instruction_definition, field_values);
+        const disp_hi = getFieldInType(u8, FieldType.disp_hi, 0, instruction_definition, field_values);
+        const data_lo = getFieldInType(u8, FieldType.data_lo, 0, instruction_definition, field_values);
+        const data_hi = getFieldInType(u8, FieldType.data_hi, 0, instruction_definition, field_values);
+        const addr_lo = getFieldInType(u8, FieldType.addr_lo, 0, instruction_definition, field_values);
+        const addr_hi = getFieldInType(u8, FieldType.addr_hi, 0, instruction_definition, field_values);
 
-            const reg_w_target = InstructionTarget { .register = Register.fromFields(reg, w) };
-
-            const mod_w_rm_target =
-                if (mod == 0b11)
-                    InstructionTarget { .register = Register.fromFields(rm, w) }
-                else
-                    if (rm == 0b110 and mod == 0b00) InstructionTarget {
-                        .direct_address = @bitCast([_]u8{data_hi, data_lo})
-                    }
-                    else InstructionTarget {
-                        .effective_address = EffectiveAddressTarget.fromFields(rm, mod, data_lo, data_hi)
-                    };
-
-            if (d == 0) { instruction.src = reg_w_target; instruction.dst = mod_w_rm_target; }
-            else        { instruction.dst = reg_w_target; instruction.src = mod_w_rm_target; }
+        if (instruction_definition.type == .MOV) {
+            // dst
+            if (instruction_definition.hasField(.sr)) {
+                instruction.dst = InstructionTarget { .segment_register = SegmentRegister.fromFields(sr) };
+            } else if (instruction_definition.hasField(.reg)) {
+                instruction.dst = InstructionTarget { .register = Register.fromFields(reg, w) };
+            } else if (instruction_definition.hasField(.disp_lo)) {
+                instruction.dst = InstructionTarget.fromFields(mod, rm, w, disp_lo, disp_hi);
+            } else if (instruction_definition.hasField(.addr_lo)) {
+                instruction.dst = InstructionTarget { .address = AddressTarget.fromFields(w, addr_lo, addr_hi) };
+            } else { unreachable; }
+            // src
+            if (instruction_definition.hasField(.data_lo)) {
+                instruction.src = InstructionTarget { .immediate = ImmediateTarget.fromFields(w, data_lo, data_hi) };
+            } else if (instruction_definition.hasField(.disp_lo)) {
+                instruction.src = InstructionTarget.fromFields(mod, rm, w, disp_lo, disp_hi);
+            } else {                                             // accumulator reg = 0b000
+                instruction.src = InstructionTarget { .register = Register.fromFields(0b000, w) };
+            }
+            // swap src with dst if necessary
+            if (d == 0) { const tmp = instruction.src; instruction.src = instruction.dst; instruction.dst = tmp; }
+        } else {
+            return error.OnlyMovInstructionsAreSupported;
         }
 
         return instruction;
@@ -263,15 +313,32 @@ const CPU8086 = struct {
          });
     }
 
+    /// A helper method to extract field values from bytes array of field_values
+    /// in which fields were stored while determining the instruction_definition.
+    /// Allows to get the field value in expected type and specify fallback value
+    /// if the field is not part of the instruction_definition.
+    fn getFieldInType(
+        comptime T: type,
+        field: FieldType,
+        fallback: T,  // fallback value if instruction definition does not have this field
+        instruction_definition: InstructionDefinition,
+        field_values: [@typeInfo(FieldType).Enum.fields.len]u8
+    ) T {
+        if (!instruction_definition.hasField(field)) return fallback;
+        const result: T = @intCast(field_values[@intFromEnum(field)]);
+        return result;
+    }
+
     const instruction_definitions_separators = " |";
     const instruction_definitions_strings: []const []const u8 = &.{
-        "MOV 100010 d w | mod reg rm | disp_lo | disp_hi",
-        "MOV 1000101  w | mod 000 rm | disp_lo | disp_hi | data_lo | data_hi",
-        "MOV 1011 w reg | data_lo    | data_hi",
-        "MOV 1010000  w | addr_lo    | addr_hi",
-        "MOV 1010001  w | addr_lo    | addr_hi",
-        "MOV 10001110   | mod 0 sr rm",
-        "MOV 10001100   | mod 0 sr rm",
+        "MOV 100010 d w | mod reg rm  | disp_lo | disp_hi",
+        "MOV 1000101  w | mod 000 rm  | disp_lo | disp_hi | data_lo | data_hi",
+        "MOV 1011 w reg | data_lo     | data_hi",
+        // the definitions for memory and segmented registers were altered to
+        // include the 'd' field which specifies what is source and what is
+        // the destination - it simplifies the parsing of instructions
+        "MOV 101000 d w | addr_lo     | addr_hi",
+        "MOV 100011 d 0 | mod 0 sr rm | disp_lo | disp_hi",
     };
 
     const FieldType = enum(u8) {
