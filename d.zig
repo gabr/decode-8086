@@ -20,7 +20,7 @@ pub fn main() !void {
     const args = try process.argsAlloc(allocator);
     defer process.argsFree(allocator, args);
 
-    //debug.print("args: {d}:\n  {s}\n", .{args.len, try mem.join(allocator, "\n  ", args)});
+    debug.print("args: {d}:\n  {s}\n", .{args.len, try mem.join(allocator, "\n  ", args)});
 
     if (args.len < 2) {
         return error.MissingPath;
@@ -36,7 +36,7 @@ pub fn main() !void {
     // open file
     const cwd = try process.getCwdAlloc(allocator);
     const file_absolute_path = try fs.path.resolve(allocator, &[_][]const u8{cwd, file_path});
-    //debug.print("file_absolute_path: {s}\n", .{file_absolute_path});
+    debug.print("file_absolute_path: {s}\n", .{file_absolute_path});
     const file = try fs.openFileAbsolute(file_absolute_path, .{});
     defer file.close();
 
@@ -61,38 +61,42 @@ pub fn main() !void {
 
     //CPU8086.debugPrintInstructionDefinitions();
 
-    // read instructions from file till the end of the file
+    // read instructions from file and print them out as ASM
     while (try CPU8086.decode(file_reader)) |instruction| {
-        _ = instruction;
+        try CPU8086.writeAsm(instruction, stdout);
+        try stdout.print("\n", .{});
     }
 }
 
 const CPU8086 = struct {
     pub const InstructionType = enum(u8) {
-        MOV,
+        mov,
     };
 
-    pub const Register = enum(u8) {
-        AL, AX, // REG 000 W 0 and 1
-        CL, CX, // REG 001 W 0 and 1
-        DL, DX, // REG 010 W 0 and 1
-        BL, BX, // REG 011 W 0 and 1
-        AH, SP, // REG 100 W 0 and 1
-        CH, BP, // REG 101 W 0 and 1
-        DH, SI, // REG 110 W 0 and 1
-        BH, DI, // REG 111 W 0 and 1
+    pub const Register = enum(u8) { al, ax, cl, cx, dl, dx, bl, bx, ah, sp, ch, bp, dh, si, bh, di, };
+    pub const RegisterTarget = struct {
+        register:   Register,
 
-        pub fn fromFields(reg: u3, w: u1) Register {
+        pub fn fromFields(reg: u3, w: u1) RegisterTarget {
             const byte_reg: u8 = @intCast(reg);
-            return @enumFromInt((byte_reg*2)+w);
+            return .{ .register = @enumFromInt((byte_reg*2)+w) };
+        }
+
+        pub fn writeAsm(self: @This(), writer: anytype) !void {
+            _ = try writer.write(@tagName(self.register));
         }
     };
 
-    pub const SegmentRegister = enum(u2) {
-        ES, CS, SS, DS,
+    pub const SegmentRegister = enum(u2) { es, cs, ss, ds, };
+    pub const SegmentRegisterTarget = struct {
+        register: SegmentRegister,
 
-        pub fn fromFields(sr: u2) SegmentRegister {
-            return @enumFromInt(sr);
+        pub fn fromFields(sr: u2) SegmentRegisterTarget {
+            return .{ .register = @enumFromInt(sr) };
+        }
+
+        pub fn writeAsm(self: @This(), writer: anytype) !void {
+            _ = try writer.write(@tagName(self.register));
         }
     };
 
@@ -102,54 +106,82 @@ const CPU8086 = struct {
 
         pub fn fromFields(w: u1, addr_lo: u8, addr_hi: u8) AddressTarget {
             return if (w == 0) .{ .is_wide = false, .address = @intCast(addr_lo) }
-                   else        .{ .is_wide = true,  .address = @bitCast([_]u8{addr_hi, addr_lo}) };
+                   else        .{ .is_wide = true,  .address = @bitCast([_]u8{addr_lo, addr_hi}) };
+        }
+
+        pub fn writeAsm(self: @This(), writer: anytype) !void {
+            try writer.print("[{d}]", .{self.address});
         }
     };
 
-    pub const EffectiveAddress = enum(u8) {
-        bx_si, bx_di, bp_si, bp_di, si, di, bp, bx,
-    };
-
+    pub const EffectiveAddress = enum(u8) { bx_si, bx_di, bp_si, bp_di, si, di, bp, bx, };
     pub const EffectiveAddressTarget = struct {
-        type:            EffectiveAddress,
-        is_wide:         bool,
-        disp_offset:     u16,
+        type:        EffectiveAddress,
+        is_wide:     bool,
+        disp_offset: i16,
 
         pub fn fromFields(rm: u3, mod: u2, disp_lo: u8, disp_hi: u8) EffectiveAddressTarget {
-            const disp_offset: u16 =
+            const disp_offset: i16 =
                      if (mod == 0b00) 0
                 else if (mod == 0b01) @intCast(disp_lo)
-                else if (mod == 0b10) @bitCast([_]u8{disp_hi, disp_lo})
+                else if (mod == 0b10) @bitCast([_]u8{disp_lo, disp_hi})
                 else unreachable;
 
             return .{
-                .type            = @enumFromInt(rm),
-                .is_wide         = mod == 0b10,
-                .disp_offset     = disp_offset,
+                .type        = @enumFromInt(rm),
+                .is_wide     = mod == 0b10,
+                .disp_offset = disp_offset,
             };
+        }
+
+        pub fn writeAsm(self: @This(), writer: anytype) !void {
+            _ = try writer.write("[");
+
+            const name = @tagName(self.type);
+            if (name[2] == '_') {
+                _ = try writer.write(name[0..2]);
+                _ = try writer.write(" + ");
+                _ = try writer.write(name[3..5]);
+            } else {
+                _ = try writer.write(name);
+            }
+
+            if (self.disp_offset != 0) {
+                try writer.print(" + {d}", .{self.disp_offset});
+            }
+
+            _ = try writer.write("]");
         }
     };
 
     pub const ImmediateTarget = struct {
         is_wide: bool,
-        data:    u16,
+        data:    i16,
 
         pub fn fromFields(w: u1, data_lo: u8, data_hi: u8) ImmediateTarget {
-            return if (w == 0) .{ .is_wide = false, .data = @intCast(data_lo) }
-                   else        .{ .is_wide = true,  .data = @bitCast([_]u8{data_hi, data_lo}) };
+            return if (w == 0) .{ .is_wide = false, .data = @as(i8, @bitCast(data_lo)) }
+                   else        .{ .is_wide = true,  .data = @bitCast([_]u8{data_lo, data_hi}) };
+        }
+
+        pub fn writeAsm(self: @This(), print_size: bool, writer: anytype) !void {
+            if (print_size) {
+                if (self.is_wide) { _ = try writer.write("word "); }
+                else              { _ = try writer.write("byte "); }
+            }
+            try writer.print("{d}", .{self.data});
         }
     };
 
     pub const InstructionTarget = union(enum) {
-        register:          Register,
-        segment_register:  SegmentRegister,
+        register:          RegisterTarget,
+        segment_register:  SegmentRegisterTarget,
         address:           AddressTarget,
         effective_address: EffectiveAddressTarget,
         immediate:         ImmediateTarget,
 
         pub fn fromFields(mod: u2, rm: u3, w: u1, disp_lo: u8, disp_hi: u8) InstructionTarget {
             if (mod == 0b11) return InstructionTarget {
-                .register = Register.fromFields(rm, w)
+                .register = RegisterTarget.fromFields(rm, w)
             };
             if (mod == 0b00 and rm == 0b110) return InstructionTarget {
                 .address= AddressTarget.fromFields(1, disp_lo, disp_hi)
@@ -161,9 +193,9 @@ const CPU8086 = struct {
     };
 
     pub const Instruction = struct {
-        type:        InstructionType,
-        dst:         InstructionTarget,
-        src:         InstructionTarget,
+        type: InstructionType,
+        dst:  InstructionTarget,
+        src:  InstructionTarget,
     };
 
     /// Decodes single instruction from the given reader
@@ -271,12 +303,12 @@ const CPU8086 = struct {
         const addr_lo = getFieldInType(u8, FieldType.addr_lo, 0, instruction_definition, field_values);
         const addr_hi = getFieldInType(u8, FieldType.addr_hi, 0, instruction_definition, field_values);
 
-        if (instruction_definition.type == .MOV) {
+        if (instruction_definition.type == .mov) {
             // dst
             if (instruction_definition.hasField(.sr)) {
-                instruction.dst = InstructionTarget { .segment_register = SegmentRegister.fromFields(sr) };
+                instruction.dst = InstructionTarget { .segment_register = SegmentRegisterTarget.fromFields(sr) };
             } else if (instruction_definition.hasField(.reg)) {
-                instruction.dst = InstructionTarget { .register = Register.fromFields(reg, w) };
+                instruction.dst = InstructionTarget { .register = RegisterTarget.fromFields(reg, w) };
             } else if (instruction_definition.hasField(.disp_lo)) {
                 instruction.dst = InstructionTarget.fromFields(mod, rm, w, disp_lo, disp_hi);
             } else if (instruction_definition.hasField(.addr_lo)) {
@@ -287,8 +319,8 @@ const CPU8086 = struct {
                 instruction.src = InstructionTarget { .immediate = ImmediateTarget.fromFields(w, data_lo, data_hi) };
             } else if (instruction_definition.hasField(.disp_lo)) {
                 instruction.src = InstructionTarget.fromFields(mod, rm, w, disp_lo, disp_hi);
-            } else {                                             // accumulator reg = 0b000
-                instruction.src = InstructionTarget { .register = Register.fromFields(0b000, w) };
+            } else {                                           // accumulator ax reg = 0b000 w = 1
+                instruction.src = InstructionTarget { .register = RegisterTarget.fromFields(0b000, 1) };
             }
             // swap src with dst if necessary
             if (d == 0) { const tmp = instruction.src; instruction.src = instruction.dst; instruction.dst = tmp; }
@@ -296,17 +328,28 @@ const CPU8086 = struct {
             return error.OnlyMovInstructionsAreSupported;
         }
 
+        debug.print("parsed instruction: {any}\n", .{instruction});
         return instruction;
     }
 
     // Writes given instruction in Assembly representation using given writer
     pub fn writeAsm(instruction: Instruction, writer: anytype) !void {
-        // TODO(agabrys)
-        try writer.print( "{}:  dest  {any} | src   {any}\n", .{
-            instruction.type,
-            instruction.dest,
-            instruction.src,
-         });
+        try writer.print("{s} ", .{@tagName(instruction.type)});
+        try writeAsmTarget(instruction.dst, false, writer);
+        try writer.print(", ", .{});
+        const InstructionTargetTag = @typeInfo(InstructionTarget).Union.tag_type.?;
+        const print_size = @as(InstructionTargetTag, instruction.dst) == InstructionTargetTag.effective_address;
+        try writeAsmTarget(instruction.src, print_size, writer);
+    }
+    fn writeAsmTarget(target: InstructionTarget, print_size: bool, writer: anytype) !void {
+        // TODO: how can I make it so I don't have to unpack it hmm
+        switch (target) {
+            .register          => |i| try i.writeAsm(writer),
+            .segment_register  => |i| try i.writeAsm(writer),
+            .address           => |i| try i.writeAsm(writer),
+            .effective_address => |i| try i.writeAsm(writer),
+            .immediate         => |i| try i.writeAsm(print_size, writer),
+        }
     }
 
     /// A helper method to extract field values from bytes array of field_values
@@ -327,14 +370,14 @@ const CPU8086 = struct {
 
     const instruction_definitions_separators = " |";
     const instruction_definitions_strings: []const []const u8 = &.{
-        "MOV 100010 d w | mod reg rm  | disp_lo | disp_hi",
-        "MOV 1000101  w | mod 000 rm  | disp_lo | disp_hi | data_lo | data_hi",
-        "MOV 1011 w reg | data_lo     | data_hi",
-        // the definitions for memory and segmented registers were altered to
+        "mov 100010 d w | mod reg rm  | disp_lo | disp_hi",
+        "mov 1000101  w | mod 000 rm  | disp_lo | disp_hi | data_lo | data_hi",
+        "mov 1011 w reg | data_lo     | data_hi",
+        // the definitions for memory and segment registers were altered to
         // include the 'd' field which specifies what is source and what is
         // the destination - it simplifies the parsing of instructions
-        "MOV 101000 d w | addr_lo     | addr_hi",
-        "MOV 100011 d 0 | mod 0 sr rm | disp_lo | disp_hi",
+        "mov 101000 d w | addr_lo     | addr_hi",
+        "mov 100011 d 0 | mod 0 sr rm | disp_lo | disp_hi",
     };
 
     const FieldType = enum(u8) {
