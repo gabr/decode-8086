@@ -20,14 +20,14 @@ pub fn main() !void {
     const args = try process.argsAlloc(allocator);
     defer process.argsFree(allocator, args);
 
-    debug.print("args: {d}:\n  {s}\n", .{args.len, try mem.join(allocator, "\n  ", args)});
+    //debug.print("args: {d}:\n  {s}\n", .{args.len, try mem.join(allocator, "\n  ", args)});
 
     if (args.len < 2) {
         return error.MissingPath;
     }
 
     const file_path = args[1];
-    debug.print("decoding file: {s}\n", .{file_path});
+    //debug.print("decoding file: {s}\n", .{file_path});
 
     if (mem.endsWith(u8, fs.path.extension(file_path), ".asm")) {
         return error.UnexpectedAsmExtension;
@@ -36,7 +36,7 @@ pub fn main() !void {
     // open file
     const cwd = try process.getCwdAlloc(allocator);
     const file_absolute_path = try fs.path.resolve(allocator, &[_][]const u8{cwd, file_path});
-    debug.print("file_absolute_path: {s}\n", .{file_absolute_path});
+    //debug.print("file_absolute_path: {s}\n", .{file_absolute_path});
     const file = try fs.openFileAbsolute(file_absolute_path, .{});
     defer file.close();
 
@@ -123,7 +123,7 @@ const CPU8086 = struct {
         pub fn fromFields(rm: u3, mod: u2, disp_lo: u8, disp_hi: u8) EffectiveAddressTarget {
             const disp_offset: i16 =
                      if (mod == 0b00) 0
-                else if (mod == 0b01) @intCast(disp_lo)
+                else if (mod == 0b01) @as(i8, @bitCast(disp_lo))
                 else if (mod == 0b10) @bitCast([_]u8{disp_lo, disp_hi})
                 else unreachable;
 
@@ -147,7 +147,12 @@ const CPU8086 = struct {
             }
 
             if (self.disp_offset != 0) {
-                try writer.print(" + {d}", .{self.disp_offset});
+                if (self.disp_offset < 0) {
+                    _ = try writer.write(" - ");
+                    try writer.print("{d}", .{-self.disp_offset});
+                } else {
+                    try writer.print(" + {d}", .{self.disp_offset});
+                }
             }
 
             _ = try writer.write("]");
@@ -231,7 +236,8 @@ const CPU8086 = struct {
                         //debug.print("instruction_bytes: [{x}]\n", .{fmt.fmtSliceHexLower(instruction_bytes.slice())});
                         if (false == field.isPresent(
                                 @intCast(field_values[@intFromEnum(FieldType.mod)]),
-                                @intCast(field_values[@intFromEnum(FieldType.w)]))) {
+                                @intCast(field_values[@intFromEnum(FieldType.w  )]),
+                                @intCast(field_values[@intFromEnum(FieldType.rm )]))) {
                             continue;
                         }
 
@@ -273,17 +279,17 @@ const CPU8086 = struct {
                 }
                 definition_index += 1;
             } else {
-                debug.print("failed on bytes({d}) [{x}]", .{
-                    instruction_bytes.len,
-                    fmt.fmtSliceHexLower(instruction_bytes.constSlice()), });
+                //debug.print("failed on bytes({d}) [{x}]", .{
+                //    instruction_bytes.len,
+                //    fmt.fmtSliceHexLower(instruction_bytes.constSlice()), });
                 return error.UnknownInstruction;
             };
 
-        debug.print("definition for bytes({d}) [{x}]: [{d}] {s}\n", .{
-            instruction_bytes.len,
-            fmt.fmtSliceHexLower(instruction_bytes.constSlice()),
-            definition_index,
-            instruction_definitions_strings[definition_index] });
+        //debug.print("definition for bytes({d}) [{x}]: [{d}] {s}\n", .{
+        //    instruction_bytes.len,
+        //    fmt.fmtSliceHexLower(instruction_bytes.constSlice()),
+        //    definition_index,
+        //    instruction_definitions_strings[definition_index] });
 
         // determine destination and source
         var instruction: Instruction = undefined;
@@ -328,7 +334,7 @@ const CPU8086 = struct {
             return error.OnlyMovInstructionsAreSupported;
         }
 
-        debug.print("parsed instruction: {any}\n", .{instruction});
+        //debug.print("parsed instruction: {any}\n", .{instruction});
         return instruction;
     }
 
@@ -371,7 +377,7 @@ const CPU8086 = struct {
     const instruction_definitions_separators = " |";
     const instruction_definitions_strings: []const []const u8 = &.{
         "mov 100010 d w | mod reg rm  | disp_lo | disp_hi",
-        "mov 1000101  w | mod 000 rm  | disp_lo | disp_hi | data_lo | data_hi",
+        "mov 1100011  w | mod 000 rm  | disp_lo | disp_hi | data_lo | data_hi",
         "mov 1011 w reg | data_lo     | data_hi",
         // the definitions for memory and segment registers were altered to
         // include the 'd' field which specifies what is source and what is
@@ -405,13 +411,13 @@ const CPU8086 = struct {
         value:      u8,
         bits_count: u8,
 
-        pub fn isPresent(self: Field, mod: u2, w: u1) bool {
+        pub fn isPresent(self: Field, mod: u2, w: u1, rm: u3) bool {
             //debug.print("isPresent({}, mod: {}, w: {})\n", .{ self.type, mod, w });
             return switch(self.type) {
                 .constant, .d, .w, .mod, .reg,
                 .rm, .sr, .data_lo, .addr_lo   => true,
-                .disp_lo                       => mod == 0b01 or mod == 0b10,
-                .disp_hi                       => mod == 0b10,
+                .disp_lo                       => (rm == 0b110 and mod == 0b00) or mod == 0b01 or mod == 0b10,
+                .disp_hi                       => (rm == 0b110 and mod == 0b00) or mod == 0b10,
                 .data_hi, .addr_hi             => w == 0b1,
             };
         }
@@ -530,3 +536,203 @@ const CPU8086 = struct {
         break :result parsed_definitions;
     };
 };
+
+
+test "decode8086" {
+    // setup
+    const TestCase = struct {
+        bytes:  []const u8,
+        output: []const u8,
+    };
+    const test_cases = [_]TestCase{
+          // basic register to register moves
+        .{ .bytes = &[_]u8{ 0x89, 0xD9 }, .output = "mov cx, bx" },
+        .{ .bytes = &[_]u8{ 0x88, 0xE5 }, .output = "mov ch, ah" },
+        .{ .bytes = &[_]u8{ 0x89, 0xDA }, .output = "mov dx, bx" },
+        .{ .bytes = &[_]u8{ 0x89, 0xDE }, .output = "mov si, bx" },
+        .{ .bytes = &[_]u8{ 0x89, 0xFB }, .output = "mov bx, di" },
+        .{ .bytes = &[_]u8{ 0x88, 0xC8 }, .output = "mov al, cl" },
+        .{ .bytes = &[_]u8{ 0x88, 0xED }, .output = "mov ch, ch" },
+        .{ .bytes = &[_]u8{ 0x89, 0xC3 }, .output = "mov bx, ax" },
+        .{ .bytes = &[_]u8{ 0x89, 0xF3 }, .output = "mov bx, si" },
+        .{ .bytes = &[_]u8{ 0x89, 0xFC }, .output = "mov sp, di" },
+        .{ .bytes = &[_]u8{ 0x89, 0xC5 }, .output = "mov bp, ax" },
+        .{ .bytes = &[_]u8{ 0x89, 0xDE }, .output = "mov si, bx" },
+        .{ .bytes = &[_]u8{ 0x88, 0xC6 }, .output = "mov dh, al" },
+
+          // 8-bit immediate-to-register
+        .{ .bytes = &[_]u8{ 0xB1, 0x0C }, .output = "mov cl, 12" },
+        .{ .bytes = &[_]u8{ 0xB5, 0xF4 }, .output = "mov ch, -12" },
+
+          // 16-bit immediate-to-register
+        .{ .bytes = &[_]u8{ 0xB9, 0x0C, 0x00 }, .output = "mov cx, 12" },
+        .{ .bytes = &[_]u8{ 0xB9, 0xF4, 0xFF }, .output = "mov cx, -12" },
+        .{ .bytes = &[_]u8{ 0xBA, 0x6C, 0x0F }, .output = "mov dx, 3948" },
+        .{ .bytes = &[_]u8{ 0xBA, 0x94, 0xF0 }, .output = "mov dx, -3948" },
+
+          // Source address calculation
+        .{ .bytes = &[_]u8{ 0x8A, 0x00 },       .output = "mov al, [bx + si]" },
+        .{ .bytes = &[_]u8{ 0x8B, 0x1B },       .output = "mov bx, [bp + di]" },
+        .{ .bytes = &[_]u8{ 0x8B, 0x56, 0x00 }, .output = "mov dx, [bp]" },
+
+          // Source address calculation plus 8-bit displacement
+        .{ .bytes = &[_]u8{ 0x8A, 0x60, 0x04 }, .output = "mov ah, [bx + si + 4]" },
+
+          // Source address calculation plus 16-bit displacement
+        .{ .bytes = &[_]u8{ 0x8A, 0x80, 0x87, 0x13 }, .output = "mov al, [bx + si + 4999]" },
+
+          // Dest address calculation
+        .{ .bytes = &[_]u8{ 0x89, 0x09 },       .output = "mov [bx + di], cx" },
+        .{ .bytes = &[_]u8{ 0x88, 0x0A },       .output = "mov [bp + si], cl" },
+        .{ .bytes = &[_]u8{ 0x88, 0x6E, 0x00 }, .output = "mov [bp], ch" },
+
+          // Signed displacements
+        .{ .bytes = &[_]u8{ 0x8B, 0x41, 0xDB},        .output = "mov ax, [bx + di - 37]" },
+        .{ .bytes = &[_]u8{ 0x89, 0x8C, 0xD4, 0xFE }, .output = "mov [si - 300], cx" },
+        .{ .bytes = &[_]u8{ 0x8B, 0x57, 0xE0},        .output = "mov dx, [bx - 32]" },
+
+          // Explicit sizes
+        .{ .bytes = &[_]u8{ 0xC6, 0x03, 0x07 },                   .output = "mov [bp + di], byte 7" },
+        .{ .bytes = &[_]u8{ 0xC7, 0x85, 0x85, 0x03, 0x5B, 0x01 }, .output = "mov [di + 901], word 347" },
+
+          // Direct address
+        .{ .bytes = &[_]u8{ 0x8B, 0x2E, 0x05, 0x00 }, .output = "mov bp, [5]" },
+        .{ .bytes = &[_]u8{ 0x8B, 0x1E, 0x82, 0x0D }, .output = "mov bx, [3458]" },
+
+          // Memory-to-accumulator test
+        .{ .bytes = &[_]u8{ 0xA1, 0xFB, 0x09 }, .output = "mov ax, [2555]" },
+        .{ .bytes = &[_]u8{ 0xA1, 0x10, 0x00 }, .output = "mov ax, [16]" },
+
+          // Accumulator-to-memory test
+        .{ .bytes = &[_]u8{ 0xA3, 0xFA, 0x09 }, .output = "mov [2554], ax" },
+        .{ .bytes = &[_]u8{ 0xA3, 0x0F, 0x00 }, .output = "mov [15], ax" },
+    };
+
+    var output_buffer: [test_cases.len*32]u8 = undefined;
+    var fbs = io.fixedBufferStream(&output_buffer);
+    var output_writer = fbs.writer();
+
+    // run tests
+    var failed_tests: usize = 0;
+    for (test_cases, 0..) |test_case, index| {
+        // reset the buffer at the end of the loop
+        defer fbs.reset();
+
+        // decode
+        var input_fixed_buffer_steram = io.fixedBufferStream(test_case.bytes);
+        if (CPU8086.decode(input_fixed_buffer_steram.reader())) |optional_instruction| {
+            try CPU8086.writeAsm(optional_instruction.?, output_writer);
+        } else |err| {
+            // print details on decode fail but continue with the tests
+            failed_tests += 1;
+            debug.print("test {d} failed, bytes: {x}, expected ({d}): '{s}', got: {any}\n", .{
+                index,
+                fmt.fmtSliceHexLower(test_case.bytes),
+                test_case.output.len, test_case.output,
+                err
+            });
+            if (@errorReturnTrace()) |stack| {
+                debug.dumpStackTrace(stack.*);
+            }
+            continue;
+        }
+
+        // extract the output from the buffer
+        const output = output_buffer[0..fbs.pos];
+
+        // compare
+        if (mem.eql(u8, test_case.output, output) == false) {
+            failed_tests += 1;
+            debug.print("test {d} failed, bytes: {x}, expected ({d}): '{s}', got({d}): '{s}'\n", .{
+                index,
+                fmt.fmtSliceHexLower(test_case.bytes),
+                test_case.output.len, test_case.output,
+                output.len, output
+            });
+        }
+    }
+
+    // summary
+    debug.print("\nrun {d} tests; passed: {d}; failed: {d}\n", .{
+        test_cases.len,
+        test_cases.len - failed_tests,
+        failed_tests
+    });
+
+    // if all succeeded then do the combined test
+    // This combined test is important to make sure that we do not consume too
+    // many bytes when decoding instruction and that we output them in correct
+    // order and with new lines and so on.
+    if (failed_tests == 0) {
+        // merge the data
+        var bytes_buffer           : [output_buffer.len]u8 = undefined;
+        var expected_output_buffer : [output_buffer.len]u8 = undefined;
+
+        var bytes           : []u8 = bytes_buffer          [0..];
+        var expected_output : []u8 = expected_output_buffer[0..];
+
+        var total_bytes_count : usize = 0;
+        var total_output_len  : usize = 0;
+
+        for (test_cases) |test_case| {
+            mem.copyForwards(u8, bytes, test_case.bytes);
+            bytes = bytes[test_case.bytes.len..];
+            total_bytes_count += test_case.bytes.len;
+
+            mem.copyForwards(u8, expected_output, test_case.output);
+            expected_output = expected_output[test_case.output.len..];
+            total_output_len += test_case.output.len;
+            mem.copyForwards(u8, expected_output, "\n");
+            expected_output = expected_output["\n".len..];
+            total_output_len += "\n".len;
+        }
+
+        bytes           = bytes_buffer          [0..total_bytes_count];
+        expected_output = expected_output_buffer[0..total_output_len];
+
+        var input_fixed_buffer_steram = io.fixedBufferStream(bytes);
+        const input_reader = input_fixed_buffer_steram.reader();
+
+        // decode
+        fbs.reset();
+        while (true) {
+            if (CPU8086.decode(input_reader)) |optional_instruction| {
+                if (optional_instruction) |instruction| {
+                    try CPU8086.writeAsm(instruction, output_writer);
+                    try output_writer.print("\n", .{});
+                } else { break; }
+            } else |err| {
+                // print details on decode fail but continue with the tests
+                failed_tests += 1;
+                debug.print("combined test failed with {}\n", .{err});
+                if (@errorReturnTrace()) |stack| {
+                    debug.dumpStackTrace(stack.*);
+                }
+                return;
+            }
+        }
+
+        // compare
+        const output = fbs.getWritten();
+        if (mem.eql(u8, expected_output, output) == false) {
+            debug.print("combined test failed\n" ++
+                "expected ({d}):\n" ++
+                "-----------------------------n" ++
+                "{s}\n" ++
+                "-----------------------------n" ++
+                "got ({d}):\n" ++
+                "-----------------------------n" ++
+                "{s}\n" ++
+                "-----------------------------n",
+                .{
+                    expected_output.len,
+                    expected_output,
+                    output.len,
+                    output,
+                }
+            );
+        } else {
+            debug.print("combined test passed\n", .{});
+        }
+    }
+}
