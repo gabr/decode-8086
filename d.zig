@@ -45,7 +45,6 @@ pub fn main() !void {
     //try file.seekTo(0);
     // create input reader
     const file_reader = file.reader();
-    const file_size = try file.getEndPos();
 
     // create output writer - we are writing to standard output
     const stdout_file = io.getStdOut().writer();
@@ -63,11 +62,8 @@ pub fn main() !void {
     //CPU8086.debugPrintInstructionDefinitions();
 
     // read instructions from file till the end of the file
-    var bytes_read: u64 = 0;
-    while (bytes_read < file_size) {
-        const instruction = try CPU8086.decode(file_reader);
-        bytes_read += instruction.bytes_count;
-        //try CPU8086.writeAsm(instruction, stdout);
+    while (try CPU8086.decode(file_reader)) |instruction| {
+        _ = instruction;
     }
 }
 
@@ -116,7 +112,6 @@ const CPU8086 = struct {
 
     pub const EffectiveAddressTarget = struct {
         type:            EffectiveAddress,
-        has_disp_offset: bool,
         is_wide:         bool,
         disp_offset:     u16,
 
@@ -129,7 +124,6 @@ const CPU8086 = struct {
 
             return .{
                 .type            = @enumFromInt(rm),
-                .has_disp_offset = mod != 0b00,
                 .is_wide         = mod == 0b10,
                 .disp_offset     = disp_offset,
             };
@@ -170,16 +164,19 @@ const CPU8086 = struct {
         type:        InstructionType,
         dst:         InstructionTarget,
         src:         InstructionTarget,
-        bytes_count: u8,
     };
 
     /// Decodes single instruction from the given reader
-    pub fn decode(reader: anytype) !Instruction {
+    pub fn decode(reader: anytype) !?Instruction {
         // buffer for instruction bytes which assumes maximum capacity of maximum amout of fields * 2 and start with 0
         var instruction_bytes = try std.BoundedArray(u8, instruction_definitions[0].fields_buffer.len * 2).init(0);
 
         // put first byte into the instruction bytes - we always need at least one
-        try instruction_bytes.append(try reader.readByte());
+        const first_byte = reader.readByte() catch |err| switch (err) {
+            error.EndOfStream => return null,
+            else => return err,
+        };
+        try instruction_bytes.append(first_byte);
 
         // map for field values - it has to be zero initialize
         var field_values = [_]u8{0} ** @typeInfo(FieldType).Enum.fields.len;
@@ -259,7 +256,6 @@ const CPU8086 = struct {
         // determine destination and source
         var instruction: Instruction = undefined;
         instruction.type = instruction_definition.type;
-        instruction.bytes_count = @intCast(instruction_bytes.len);
 
         // cast field values to expected types to satisfy the mighty compiler \('^')/
         const d       = getFieldInType(u1, FieldType.d,       1, instruction_definition, field_values);
