@@ -309,30 +309,20 @@ const CPU8086 = struct {
         const addr_lo = getFieldInType(u8, FieldType.addr_lo, 0, instruction_definition, field_values);
         const addr_hi = getFieldInType(u8, FieldType.addr_hi, 0, instruction_definition, field_values);
 
-        if (instruction_definition.type == .mov) {
-            // dst
-            if (instruction_definition.hasField(.sr)) {
-                instruction.dst = InstructionTarget { .segment_register = SegmentRegisterTarget.fromFields(sr) };
-            } else if (instruction_definition.hasField(.reg)) {
-                instruction.dst = InstructionTarget { .register = RegisterTarget.fromFields(reg, w) };
-            } else if (instruction_definition.hasField(.disp_lo)) {
-                instruction.dst = InstructionTarget.fromFields(mod, rm, w, disp_lo, disp_hi);
-            } else if (instruction_definition.hasField(.addr_lo)) {
-                instruction.dst = InstructionTarget { .address = AddressTarget.fromFields(w, addr_lo, addr_hi) };
-            } else { unreachable; }
-            // src
-            if (instruction_definition.hasField(.data_lo)) {
-                instruction.src = InstructionTarget { .immediate = ImmediateTarget.fromFields(w, data_lo, data_hi) };
-            } else if (instruction_definition.hasField(.disp_lo)) {
-                instruction.src = InstructionTarget.fromFields(mod, rm, w, disp_lo, disp_hi);
-            } else {                                           // accumulator ax reg = 0b000 w = 1
-                instruction.src = InstructionTarget { .register = RegisterTarget.fromFields(0b000, 1) };
-            }
-            // swap src with dst if necessary
-            if (d == 0) { const tmp = instruction.src; instruction.src = instruction.dst; instruction.dst = tmp; }
-        } else {
-            return error.OnlyMovInstructionsAreSupported;
-        }
+        // determine dst and src
+        instruction.dst =
+                 if (instruction_definition.hasField(.sr))      InstructionTarget { .segment_register = SegmentRegisterTarget.fromFields(sr) }
+            else if (instruction_definition.hasField(.reg))     InstructionTarget { .register = RegisterTarget.fromFields(reg, w) }
+            else if (instruction_definition.hasField(.disp_lo)) InstructionTarget.fromFields(mod, rm, w, disp_lo, disp_hi)
+            else if (instruction_definition.hasField(.addr_lo)) InstructionTarget { .address = AddressTarget.fromFields(w, addr_lo, addr_hi) }
+            else                                                InstructionTarget { .register = RegisterTarget.fromFields(0b000, w) }; // accumulator ax reg = 0b000
+        instruction.src =
+                 if (instruction_definition.hasField(.data_lo)) InstructionTarget { .immediate = ImmediateTarget.fromFields(w, data_lo, data_hi) }
+            else if (instruction_definition.hasField(.disp_lo)) InstructionTarget.fromFields(mod, rm, w, disp_lo, disp_hi)
+            else                                                InstructionTarget { .register = RegisterTarget.fromFields(0b000, w) }; // accumulator ax reg = 0b000
+
+        // swap src with dst if necessary
+        if (d == 0) { const tmp = instruction.src; instruction.src = instruction.dst; instruction.dst = tmp; }
 
         //debug.print("parsed instruction: {any}\n", .{instruction});
         return instruction;

@@ -50,13 +50,14 @@ pub fn build(b: *std.Build) void {
     // command itself, like this: `zig build run -- arg1 arg2 etc`
     if (b.args) |args| {
         run_cmd.addArgs(args);
-    } else {
-        // default args if nothing was specified
-        const arg = "../materials_repo/perfaware/part1/listing_0039_more_movs";
-        debug.print("no args given - using default one: {s}\n", .{arg});
-        //run_cmd.addArg("../materials_repo/perfaware/part1/listing_0038_many_register_mov");
-        run_cmd.addArg(arg);
     }
+    //else {
+    //    // default args if nothing was specified
+    //    const arg = "../materials_repo/perfaware/part1/listing_0041_add_sub_cmp_jnz"
+    //    debug.print("no args given - using default one: {s}\n", .{arg});
+    //    //run_cmd.addArg("../materials_repo/perfaware/part1/listing_0038_many_register_mov");
+    //    run_cmd.addArg(arg);
+    //}
 
     // This creates a build step. It will be visible in the `zig build --help` menu,
     // and can be selected like this: `zig build run`
