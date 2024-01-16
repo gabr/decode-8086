@@ -330,7 +330,9 @@ const CPU8086 = struct {
         try writeAsmTarget(instruction.dst, false, writer);
         try writer.print(", ", .{});
         const InstructionTargetTag = @typeInfo(InstructionTarget).Union.tag_type.?;
-        const print_size = @as(InstructionTargetTag, instruction.dst) == InstructionTargetTag.effective_address;
+        const dst_tag = @as(InstructionTargetTag, instruction.dst);
+        const print_size = dst_tag == InstructionTargetTag.effective_address or
+                           dst_tag == InstructionTargetTag.address;
         try writeAsmTarget(instruction.src, print_size, writer);
     }
     fn writeAsmTarget(target: InstructionTarget, print_size: bool, writer: anytype) !void {
@@ -360,7 +362,7 @@ const CPU8086 = struct {
         return result;
     }
 
-    pub const InstructionType = enum(u8) { mov, add, sub, };
+    pub const InstructionType = enum(u8) { mov, add, sub, cmp };
     const instruction_definitions_separators = " |";
     const instruction_definitions_strings: []const []const u8 = &.{
         "mov 100010 d w | mod reg rm  | disp_lo | disp_hi",
@@ -379,6 +381,10 @@ const CPU8086 = struct {
         "sub 001010 d w | mod reg rm  | disp_lo | disp_hi",
         "sub 100000 s w | mod 101 rm  | disp_lo | disp_hi | data_lo | data_hi",
         "sub 0010110  w | data_lo     | data_hi |",
+
+        "cmp 001110 d w | mod reg rm | disp_lo  | disp_hi",
+        "cmp 100000 s w | mod 111 rm | disp_lo  | disp_hi | data_lo | data_hi",
+        "cmp 0011110  w | data_lo    | data_hi  |",
     };
 
     const FieldType = enum(u8) {
@@ -654,6 +660,32 @@ test "decode8086" {
         .{ .bytes = &[_]u8{ 0x2D, 0xE8, 0x03 }, .output = "sub ax, 1000" },
         .{ .bytes = &[_]u8{ 0x2C, 0xE2 }, .output = "sub al, -30" },
         .{ .bytes = &[_]u8{ 0x2C, 0x09 }, .output = "sub al, 9" },
+
+          // cmp
+        .{ .bytes = &[_]u8{ 0x3B, 0x18 }, .output = "cmp bx, [bx + si]" },
+        .{ .bytes = &[_]u8{ 0x3B, 0x5E, 0x00 }, .output = "cmp bx, [bp]" },
+        .{ .bytes = &[_]u8{ 0x83, 0xFE, 0x02, 0x00 }, .output = "cmp si, 2" },
+        .{ .bytes = &[_]u8{ 0x83, 0xFD, 0x02, 0x00 }, .output = "cmp bp, 2" },
+        .{ .bytes = &[_]u8{ 0x83, 0xF9, 0x08, 0x00 }, .output = "cmp cx, 8" },
+        .{ .bytes = &[_]u8{ 0x3B, 0x5E, 0x00 }, .output = "cmp bx, [bp]" },
+        .{ .bytes = &[_]u8{ 0x3B, 0x4F, 0x02 }, .output = "cmp cx, [bx + 2]" },
+        .{ .bytes = &[_]u8{ 0x3A, 0x7A, 0x04 }, .output = "cmp bh, [bp + si + 4]" },
+        .{ .bytes = &[_]u8{ 0x3B, 0x7B, 0x06 }, .output = "cmp di, [bp + di + 6]" },
+        .{ .bytes = &[_]u8{ 0x39, 0x18 }, .output = "cmp [bx + si], bx" },
+        .{ .bytes = &[_]u8{ 0x39, 0x5E, 0x00 }, .output = "cmp [bp], bx" },
+        .{ .bytes = &[_]u8{ 0x39, 0x5E, 0x00 }, .output = "cmp [bp], bx" },
+        .{ .bytes = &[_]u8{ 0x39, 0x4F, 0x02 }, .output = "cmp [bx + 2], cx" },
+        .{ .bytes = &[_]u8{ 0x38, 0x7A, 0x04 }, .output = "cmp [bp + si + 4], bh" },
+        .{ .bytes = &[_]u8{ 0x39, 0x7B, 0x06 }, .output = "cmp [bp + di + 6], di" },
+        .{ .bytes = &[_]u8{ 0x80, 0x3F, 0x22 }, .output = "cmp [bx], byte 34" },
+        .{ .bytes = &[_]u8{ 0x83, 0x3E, 0xE2, 0x12, 0x1D, 0x00 }, .output = "cmp [4834], word 29" },
+        .{ .bytes = &[_]u8{ 0x3B, 0x46, 0x00 }, .output = "cmp ax, [bp]" },
+        .{ .bytes = &[_]u8{ 0x3A, 0x00 }, .output = "cmp al, [bx + si]" },
+        .{ .bytes = &[_]u8{ 0x39, 0xD8 }, .output = "cmp ax, bx" },
+        .{ .bytes = &[_]u8{ 0x38, 0xE0 }, .output = "cmp al, ah" },
+        .{ .bytes = &[_]u8{ 0x3D, 0xE8, 0x03 }, .output = "cmp ax, 1000" },
+        .{ .bytes = &[_]u8{ 0x3C, 0xE2 }, .output = "cmp al, -30" },
+        .{ .bytes = &[_]u8{ 0x3C, 0x09 }, .output = "cmp al, 9" },
     };
 
     var output_buffer: [test_cases.len*32]u8 = undefined;
