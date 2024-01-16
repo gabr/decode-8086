@@ -1,3 +1,4 @@
+
                            ┻━┻︵ \(°□°)/ ︵ ┻━┻
 
                   !!! decode-8086 the SECOND EDITION !!!
@@ -17,14 +18,26 @@
 
                                                         (╯°□°)╯︵ ┻━┻
 
+
+  And don't even think about using this code without my supervision!
+  ... it might have a backdoor (=.=)
+  ... or two
+  ... or just a reverse shell  ¯\_(ツ)_/¯
+
+      You will have to read the ENTIREEEEE CODE just to be sure (-.^)
+
+                   Go on now and write some code (-.-)/
+
+
+
+
+  If you were looking for a real readme...
+
+                ...then You're out of luck ¯\_(ツ)_/¯
+
+                         start looking at the actual code You NOOB (■_■)
+
+
+                                                                  ,-(meow)
                                                  Peace Out  =^..^=
-
-
-
- If you were looking for a real readme...
-
-                ...then I guess You're out of luck ¯\_(ツ)_/¯
-
-                         start looking at the actual code You NOOB -.-
-
 

@@ -1,4 +1,4 @@
-/// 8086 CPU decoder
+/// 8086 CPU decoder v2
 const std     = @import("std");
 const io      = std.io;
 const fs      = std.fs;
