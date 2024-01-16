@@ -69,10 +69,6 @@ pub fn main() !void {
 }
 
 const CPU8086 = struct {
-    pub const InstructionType = enum(u8) {
-        mov,
-    };
-
     pub const Register = enum(u8) { al, ax, cl, cx, dl, dx, bl, bx, ah, sp, ch, bp, dh, si, bh, di, };
     pub const RegisterTarget = struct {
         register:   Register,
@@ -364,6 +360,7 @@ const CPU8086 = struct {
         return result;
     }
 
+    pub const InstructionType = enum(u8) { mov, add, sub, };
     const instruction_definitions_separators = " |";
     const instruction_definitions_strings: []const []const u8 = &.{
         "mov 100010 d w | mod reg rm  | disp_lo | disp_hi",
@@ -374,10 +371,18 @@ const CPU8086 = struct {
         // the destination - it simplifies the parsing of instructions
         "mov 101000 d w | addr_lo     | addr_hi",
         "mov 100011 d 0 | mod 0 sr rm | disp_lo | disp_hi",
+
+        "add 000000 d w | mod reg rm  | disp_lo | disp_hi",
+        "add 100000 s w | mod 000 rm  | disp_lo | disp_hi | data_lo | data_hi",
+        "add 0000010  w | data_lo     | data_hi |",
+
+        "sub 001010 d w | mod reg rm  | disp_lo | disp_hi",
+        "sub 100000 s w | mod 101 rm  | disp_lo | disp_hi | data_lo | data_hi",
+        "sub 0010110  w | data_lo     | data_hi |",
     };
 
     const FieldType = enum(u8) {
-        constant, d, w, mod, reg, rm, sr,
+        constant, d, w, s, mod, reg, rm, sr,
         disp_lo, disp_hi, data_lo, data_hi, addr_lo, addr_hi,
 
         pub fn getSize(self: FieldType) u8 {
@@ -385,6 +390,7 @@ const CPU8086 = struct {
                 .constant => 0,
                 .d        => 1,
                 .w        => 1,
+                .s        => 1,
                 .mod      => 2,
                 .reg      => 3,
                 .rm       => 3,
@@ -404,7 +410,7 @@ const CPU8086 = struct {
         pub fn isPresent(self: Field, mod: u2, w: u1, rm: u3) bool {
             //debug.print("isPresent({}, mod: {}, w: {})\n", .{ self.type, mod, w });
             return switch(self.type) {
-                .constant, .d, .w, .mod, .reg,
+                .constant, .d, .w, .s, .mod, .reg,
                 .rm, .sr, .data_lo, .addr_lo   => true,
                 .disp_lo                       => (rm == 0b110 and mod == 0b00) or mod == 0b01 or mod == 0b10,
                 .disp_hi                       => (rm == 0b110 and mod == 0b00) or mod == 0b10,
@@ -596,6 +602,58 @@ test "decode8086" {
           // Accumulator-to-memory test
         .{ .bytes = &[_]u8{ 0xA3, 0xFA, 0x09 }, .output = "mov [2554], ax" },
         .{ .bytes = &[_]u8{ 0xA3, 0x0F, 0x00 }, .output = "mov [15], ax" },
+
+          // adds
+        .{ .bytes = &[_]u8{ 0x03, 0x18 }, .output = "add bx, [bx + si]" },
+        .{ .bytes = &[_]u8{ 0x03, 0x5E, 0x00 }, .output = "add bx, [bp]" },    // id     sw  mod type rm
+        .{ .bytes = &[_]u8{ 0x83, 0xC6, 0x02, 0x00 }, .output = "add si, 2" },
+        .{ .bytes = &[_]u8{ 0x83, 0xC5, 0x02, 0x00 }, .output = "add bp, 2" },
+        .{ .bytes = &[_]u8{ 0x83, 0xC1, 0x08, 0x00 }, .output = "add cx, 8" },
+        .{ .bytes = &[_]u8{ 0x03, 0x5E, 0x00 }, .output = "add bx, [bp]" },
+        .{ .bytes = &[_]u8{ 0x03, 0x4F, 0x02 }, .output = "add cx, [bx + 2]" },
+        .{ .bytes = &[_]u8{ 0x02, 0x7A, 0x04 }, .output = "add bh, [bp + si + 4]" },
+        .{ .bytes = &[_]u8{ 0x03, 0x7B, 0x06 }, .output = "add di, [bp + di + 6]" },
+        .{ .bytes = &[_]u8{ 0x01, 0x18 }, .output = "add [bx + si], bx" },
+        .{ .bytes = &[_]u8{ 0x01, 0x5E, 0x00 }, .output = "add [bp], bx" },
+        .{ .bytes = &[_]u8{ 0x01, 0x5E, 0x00 }, .output = "add [bp], bx" },
+        .{ .bytes = &[_]u8{ 0x01, 0x4F, 0x02 }, .output = "add [bx + 2], cx" },
+        .{ .bytes = &[_]u8{ 0x00, 0x7A, 0x04 }, .output = "add [bp + si + 4], bh" },
+        .{ .bytes = &[_]u8{ 0x01, 0x7B, 0x06 }, .output = "add [bp + di + 6], di" },
+        .{ .bytes = &[_]u8{ 0x80, 0x07, 0x22 }, .output = "add [bx], byte 34" },
+        .{ .bytes = &[_]u8{ 0x83, 0x82, 0xE8, 0x03, 0x1D, 0x00 }, .output = "add [bp + si + 1000], word 29" },
+        .{ .bytes = &[_]u8{ 0x03, 0x46, 0x00 }, .output = "add ax, [bp]" },
+        .{ .bytes = &[_]u8{ 0x02, 0x00 }, .output = "add al, [bx + si]" },
+        .{ .bytes = &[_]u8{ 0x01, 0xD8 }, .output = "add ax, bx" },
+        .{ .bytes = &[_]u8{ 0x00, 0xE0 }, .output = "add al, ah" },
+        .{ .bytes = &[_]u8{ 0x05, 0xE8, 0x03 }, .output = "add ax, 1000" },
+        .{ .bytes = &[_]u8{ 0x04, 0xE2 }, .output = "add al, -30" },
+        .{ .bytes = &[_]u8{ 0x04, 0x09 }, .output = "add al, 9" },
+
+          // subs
+        .{ .bytes = &[_]u8{ 0x2B, 0x18 }, .output = "sub bx, [bx + si]" },
+        .{ .bytes = &[_]u8{ 0x2B, 0x5E, 0x00 }, .output = "sub bx, [bp]" },
+        .{ .bytes = &[_]u8{ 0x83, 0xEE, 0x02, 0x00 }, .output = "sub si, 2" },
+        .{ .bytes = &[_]u8{ 0x83, 0xED, 0x02, 0x00 }, .output = "sub bp, 2" },
+        .{ .bytes = &[_]u8{ 0x83, 0xE9, 0x08, 0x00 }, .output = "sub cx, 8" },
+        .{ .bytes = &[_]u8{ 0x2B, 0x5E, 0x00 }, .output = "sub bx, [bp]" },
+        .{ .bytes = &[_]u8{ 0x2B, 0x4F, 0x02 }, .output = "sub cx, [bx + 2]" },
+        .{ .bytes = &[_]u8{ 0x2A, 0x7A, 0x04 }, .output = "sub bh, [bp + si + 4]" },
+        .{ .bytes = &[_]u8{ 0x2B, 0x7B, 0x06 }, .output = "sub di, [bp + di + 6]" },
+        .{ .bytes = &[_]u8{ 0x29, 0x18 }, .output = "sub [bx + si], bx" },
+        .{ .bytes = &[_]u8{ 0x29, 0x5E, 0x00 }, .output = "sub [bp], bx" },
+        .{ .bytes = &[_]u8{ 0x29, 0x5E, 0x00 }, .output = "sub [bp], bx" },
+        .{ .bytes = &[_]u8{ 0x29, 0x4F, 0x02 }, .output = "sub [bx + 2], cx" },
+        .{ .bytes = &[_]u8{ 0x28, 0x7A, 0x04 }, .output = "sub [bp + si + 4], bh" },
+        .{ .bytes = &[_]u8{ 0x29, 0x7B, 0x06 }, .output = "sub [bp + di + 6], di" },
+        .{ .bytes = &[_]u8{ 0x80, 0x2F, 0x22 }, .output = "sub [bx], byte 34" },
+        .{ .bytes = &[_]u8{ 0x83, 0x29, 0x1D, 0x00 }, .output = "sub [bx + di], word 29" },
+        .{ .bytes = &[_]u8{ 0x2B, 0x46, 0x00 }, .output = "sub ax, [bp]" },
+        .{ .bytes = &[_]u8{ 0x2A, 0x00 }, .output = "sub al, [bx + si]" },
+        .{ .bytes = &[_]u8{ 0x29, 0xD8 }, .output = "sub ax, bx" },
+        .{ .bytes = &[_]u8{ 0x28, 0xE0 }, .output = "sub al, ah" },
+        .{ .bytes = &[_]u8{ 0x2D, 0xE8, 0x03 }, .output = "sub ax, 1000" },
+        .{ .bytes = &[_]u8{ 0x2C, 0xE2 }, .output = "sub al, -30" },
+        .{ .bytes = &[_]u8{ 0x2C, 0x09 }, .output = "sub al, 9" },
     };
 
     var output_buffer: [test_cases.len*32]u8 = undefined;
