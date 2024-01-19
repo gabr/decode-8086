@@ -116,3 +116,21 @@
         //    debug.print("]\n", .{});
         //}
     }
+
+# 19.01.2024 (piątek) Katowice
+    Już kilka razy zmieniłem wersję kompilatora więc byłem ciekaw czy problem
+    zniknął i nie - nadal jest to samo - tzn chaos jaki się pojawia gdy zrobię
+
+        pub fn fields(self: Self) []const Field {
+            return self.fields_buffer[0..self.fields_count];
+        }
+
+    jest inny, ale nadal nie działa.
+
+    Zaczynam się zastanawiać czy jest to wina wykonywania kodu w czasie
+    kompilacji, czy ogólnie robię tutaj coś niedozwolonego - do sprawdzenia.
+
+
+[ ] sprawdzić czy taka konstrukcja jest ogólnie niedozwolona czy to tylko kod
+    wykonywany w czasie kompilacji tego nie lubi
+
