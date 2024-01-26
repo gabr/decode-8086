@@ -9,11 +9,12 @@ const meta    = std.meta;
 const heap    = std.heap;
 const debug   = std.debug;
 const process = std.process;
+const testing = std.testing;
 
 pub fn main() !void {
     // just get memory in pages and free all at the end
     var arena = heap.ArenaAllocator.init(heap.page_allocator);
-    defer arena.deinit();
+    defer arena.deinit(); // TODO: remove all defers? do I really need those?
     const allocator = arena.allocator();
 
     // handle args
@@ -21,17 +22,17 @@ pub fn main() !void {
     defer process.argsFree(allocator, args);
 
     //debug.print("args: {d}:\n  {s}\n", .{args.len, try mem.join(allocator, "\n  ", args)});
-
-    if (args.len < 2) {
-        return error.MissingPath;
+    if (args.len < 2) return error.MissingPath;
+    var simulate_option:  ?bool = null;
+    var file_path_option: ?[]u8 = null;
+    var ai: usize = 1; while ((simulate_option == null or file_path_option == null) and ai < args.len) : (ai+=1) {
+             if (mem.eql(u8, args[ai], "--simulate")) { simulate_option = true; }
+        else if (mem.startsWith(u8, args[ai], "-"))   { debug.print("Unrecognized option: '{s}'\n", .{args[ai]}); }
+        else                                          { file_path_option = args[ai]; }
     }
-
-    const file_path = args[1];
-    //debug.print("decoding file: {s}\n", .{file_path});
-
-    if (mem.endsWith(u8, fs.path.extension(file_path), ".asm")) {
-        return error.UnexpectedAsmExtension;
-    }
+    const simulate  = simulate_option orelse false;
+    const file_path = file_path_option orelse return error.MissingPath;
+    if (mem.endsWith(u8, fs.path.extension(file_path), ".asm")) return error.UnexpectedAsmExtension;
 
     // open file
     const cwd = try process.getCwdAlloc(allocator);
@@ -53,29 +54,46 @@ pub fn main() !void {
     defer bw.flush() catch unreachable;
     const stdout = bw.writer();
 
-    // start by writting filename comment
-    try stdout.print("; {s}\n\n", .{file_path});
+    //try CPU8086.printInstructionDefinitions(io.getStdErr().writer());
 
-    // and the header which is necessary for nasm
-    try stdout.writeAll("bits 16\n\n");
-
-    //CPU8086.debugPrintInstructionDefinitions();
-
-    // read instructions from file and print them out as ASM
-    while (try CPU8086.decode(file_reader)) |instruction| {
-        try CPU8086.writeAsm(instruction, stdout);
-        try stdout.print("\n", .{});
+    if (simulate) {
+        debug.print("simulating...\n", .{});
+        var simulator = mem.zeroes(CPU8086.Simulator);
+        // put "mov cl, 12" instruction into memory
+        std.mem.copyForwards(u8, &simulator.memory, "\xB1\x0C");
+        try simulator.runWithLogger(stdout_file);
+        try simulator.setRegisterValue(.ah, 0x0011);
+        try simulator.printRegisters();
+    }
+    else { // decode
+        try stdout.print("; {s}\n\n", .{file_path}); // start by writting filename comment
+        try stdout.writeAll("bits 16\n\n");          // and the header which is necessary for nasm
+        // read instructions from file and print them out as ASM
+        while (try CPU8086.decode(file_reader)) |instruction| {
+            try CPU8086.writeAsm(instruction, stdout);
+            try stdout.print("\n", .{});
+        }
     }
 }
 
 const CPU8086 = struct {
-    pub const Register = enum(u8) { al, ax, cl, cx, dl, dx, bl, bx, ah, sp, ch, bp, dh, si, bh, di, };
+    pub const Register = enum(u8) { // DO NOT CHANGE THE ORDER
+        al, ax, cl, cx, dl, dx, bl, bx, ah, sp, ch, bp, dh, si, bh, di,
+
+        pub fn is8bit(self: @This()) bool {
+            return self == .al or self == .ah or
+                   self == .bl or self == .bh or
+                   self == .cl or self == .ch or
+                   self == .dl or self == .dh;
+        }
+    };
+
     pub const RegisterTarget = struct {
         register:   Register,
 
         pub fn fromFields(reg: u3, w: u1) RegisterTarget {
             const byte_reg: u8 = @intCast(reg);
-            return .{ .register = @enumFromInt((byte_reg*2)+w) };
+            return .{ .register = @enumFromInt((byte_reg*2)+w) }; // ASSUMES SPECIFIC ORDER OF ENUM VALUES
         }
 
         pub fn writeAsm(self: @This(), writer: anytype) !void {
@@ -191,6 +209,7 @@ const CPU8086 = struct {
         type: InstructionType,
         dst:  InstructionTarget,
         src:  InstructionTarget,
+        size: u8,
     };
 
     /// Decodes single instruction from the given reader
@@ -269,9 +288,9 @@ const CPU8086 = struct {
                 }
                 definition_index += 1;
             } else {
-                //debug.print("failed on bytes({d}) [{x}]", .{
-                //    instruction_bytes.len,
-                //    fmt.fmtSliceHexLower(instruction_bytes.constSlice()), });
+                debug.print("failed on bytes({d}) [{x}]", .{
+                    instruction_bytes.len,
+                    fmt.fmtSliceHexLower(instruction_bytes.constSlice()), });
                 return error.UnknownInstruction;
             };
 
@@ -284,6 +303,7 @@ const CPU8086 = struct {
         // determine destination and source
         var instruction: Instruction = undefined;
         instruction.type = instruction_definition.type;
+        instruction.size = instruction_bytes.len;
 
         // cast field values to expected types to satisfy the mighty compiler \('^')/
         const d       = getFieldInType(u1, FieldType.d,       1, instruction_definition, field_values);
@@ -320,9 +340,11 @@ const CPU8086 = struct {
 
     // Writes given instruction in Assembly representation using given writer
     pub fn writeAsm(instruction: Instruction, writer: anytype) !void {
-        try writer.print("{s} ", .{@tagName(instruction.type)});
+        try writer.print("{s}", .{@tagName(instruction.type)});
+        if (instruction.type == .nop) return;
+        _ = try writer.write(" ");
         try writeAsmTarget(instruction.dst, false, writer);
-        try writer.print(", ", .{}); // separator between destination and target
+        _ = try writer.write(", "); // separator between destination and target
         const InstructionTargetTag = @typeInfo(InstructionTarget).Union.tag_type.?;
         const dst_tag = @as(InstructionTargetTag, instruction.dst);
         const print_size = dst_tag == InstructionTargetTag.effective_address or
@@ -330,7 +352,7 @@ const CPU8086 = struct {
         try writeAsmTarget(instruction.src, print_size, writer);
     }
     fn writeAsmTarget(target: InstructionTarget, print_size: bool, writer: anytype) !void {
-        // TODO: how can I make it so I don't have to unpack it hmm
+        // NOTE: can I make it so that I don't have to unpack it?
         switch (target) {
             .register          => |i| try i.writeAsm(writer),
             .segment_register  => |i| try i.writeAsm(writer),
@@ -356,9 +378,127 @@ const CPU8086 = struct {
         return result;
     }
 
-    pub const InstructionType = enum(u8) { mov, add, sub, cmp };
+    /// Simulate instructions within the memory.
+    /// The simulated instructions have to be loaded into the .memory and
+    /// instruction pointer .ip has to be set to the index of the first
+    /// instruction:
+    ///
+    ///     var simulator = std.mem.zeroes(CPU8086.Simulator);
+    ///     // put "mov cl, 12" instruction into memory
+    ///     std.mem.copyForwards(u8, simulator.memory, "\xB1\x0C");
+    ///     // instruction pointer already has value of 0 so it points
+    ///     // at the first instruction
+    ///     try simulator.run(); // run without logger
+    ///
+    /// You can also call .runWithLogger and pass any type which implements
+    /// io/writer.zig from std:
+    ///
+    ///     try simulator.runWithLogger(io.getStdOut().writer());
+    ///
+    pub const Simulator = struct {
+        memory:    [math.maxInt(u16)]u8,
+        registers: [registers_count]u16,
+        ip:        u16,
+
+        const registers_count = 8+4; // 8 regular registers (abcd + sp, si, bp, di) and 4 segment registers (page 24)
+
+        pub fn getRegisterValue(self: @This(), register: Register) u16 {
+            return switch (register) {
+                .ah => (self.registers[0]&0xff00)>>8, .al => self.registers[0]&0x00ff, .ax => self.registers[0],
+                .bh => (self.registers[1]&0xff00)>>8, .bl => self.registers[1]&0x00ff, .bx => self.registers[1],
+                .ch => (self.registers[2]&0xff00)>>8, .cl => self.registers[2]&0x00ff, .cx => self.registers[2],
+                .dh => (self.registers[3]&0xff00)>>8, .dl => self.registers[3]&0x00ff, .dx => self.registers[3],
+                .sp => self.registers[4], .bp => self.registers[5], .si => self.registers[6], .di => self.registers[7],
+            };
+        }
+
+        pub fn setRegisterValue(self: *@This(), register: Register, value: u16) !void {
+            if (register.is8bit() and (value&0xff00!=0)) return error.nonZeroHighValueFor8bitRegister;
+            return switch (register) {
+                .ah => self.registers[0]=(self.registers[0]&0x00ff)|(value<<8), .al => self.registers[0]=(self.registers[0]&0xff00)|value,
+                .bh => self.registers[1]=(self.registers[1]&0x00ff)|(value<<8), .bl => self.registers[1]=(self.registers[1]&0xff00)|value,
+                .ch => self.registers[2]=(self.registers[2]&0x00ff)|(value<<8), .cl => self.registers[2]=(self.registers[2]&0xff00)|value,
+                .dh => self.registers[3]=(self.registers[3]&0x00ff)|(value<<8), .dl => self.registers[3]=(self.registers[3]&0xff00)|value,
+                .ax => self.registers[0]=value, .bx => self.registers[1]=value, .cx => self.registers[2]=value, .dx => self.registers[3]=value,
+                .sp => self.registers[4]=value, .bp => self.registers[5]=value, .si => self.registers[6]=value, .di => self.registers[7]=value,
+            };
+        }
+
+        pub fn getSegmentRegisterValue(self: @This(), register: SegmentRegister) u16 {
+            return self.registers[8+@as(u8, @intFromEnum(register))];
+        }
+
+        pub fn setSegmentRegisterValue(self: *@This(), register: SegmentRegister, value: u16) void {
+            self.registers[8+@as(u8, @intFromEnum(register))] = value;
+        }
+
+        pub fn printRegisters(self: @This()) !void {
+            debug.print( "ip: 0x{x:0>4}\n", .{self.ip});
+            debug.print("{s}: 0x{x:0>4}  ", .{@tagName(Register.ax),        self.getRegisterValue(Register.ax)});
+            debug.print("{s}: 0x{x:0>4}  ", .{@tagName(Register.bx),        self.getRegisterValue(Register.bx)});
+            debug.print("{s}: 0x{x:0>4}  ", .{@tagName(Register.cx),        self.getRegisterValue(Register.cx)});
+            debug.print("{s}: 0x{x:0>4}\n", .{@tagName(Register.dx),        self.getRegisterValue(Register.dx)});
+            debug.print("{s}: 0x{x:0>4}  ", .{@tagName(Register.sp),        self.getRegisterValue(Register.sp)});
+            debug.print("{s}: 0x{x:0>4}  ", .{@tagName(Register.bp),        self.getRegisterValue(Register.bp)});
+            debug.print("{s}: 0x{x:0>4}  ", .{@tagName(Register.si),        self.getRegisterValue(Register.si)});
+            debug.print("{s}: 0x{x:0>4}\n", .{@tagName(Register.di),        self.getRegisterValue(Register.di)});
+            debug.print("{s}: 0x{x:0>4}  ", .{@tagName(SegmentRegister.es), self.getSegmentRegisterValue(SegmentRegister.es)});
+            debug.print("{s}: 0x{x:0>4}  ", .{@tagName(SegmentRegister.cs), self.getSegmentRegisterValue(SegmentRegister.cs)});
+            debug.print("{s}: 0x{x:0>4}  ", .{@tagName(SegmentRegister.ss), self.getSegmentRegisterValue(SegmentRegister.ss)});
+            debug.print("{s}: 0x{x:0>4}\n", .{@tagName(SegmentRegister.ds), self.getSegmentRegisterValue(SegmentRegister.ds)});
+        }
+
+        pub fn run          (self: *@This()                 ) !void { try self._run(null); }
+        pub fn runWithLogger(self: *@This(), logger: anytype) !void { try self._run(@as(?@TypeOf(logger), logger)); }
+
+        fn _run(self: *@This(), optional_logger: anytype) !void {
+            if (optional_logger) |logger| { _ = try logger.write("logger test\n"); }
+            while (true) {
+                var memory_steram = io.fixedBufferStream(self.memory[self.ip..]);
+                if (try decode(memory_steram.reader())) |instruction| {
+                    switch (instruction.type) {
+                        .nop => return,
+                        .mov => try self.mov(instruction.dst, instruction.src),
+                        //.add => ,
+                        //.sub => ,
+                        //.cmp => ,
+                        else => unreachable,
+                    }
+                    self.ip += instruction.size;
+                } else return;
+            }
+        }
+
+        fn mov(self: *@This(), dst: InstructionTarget, src: InstructionTarget) !void {
+            const value: u16 = switch (src) {
+                .register          => |i| self.getRegisterValue(i.register),
+                .segment_register  => |i| self.getSegmentRegisterValue(i.register),
+                .address           => |i| if (i.is_wide) @as(u16, @bitCast([_]u8{self.memory[i.address],self.memory[i.address+1]}))
+                                          else           @as(u16, @intCast(self.memory[i.address])),
+                .effective_address => |_| unreachable,
+                .immediate         => |i| if (i.is_wide) @as(u16, @bitCast(i.data)) // is that LISP (O.O)
+                                          else           @as(u16, @intCast(@as(u8,  @bitCast(@as(i8, @intCast(i.data)))))),
+            };
+
+            switch (dst) {
+                .register          => |i| try self.setRegisterValue(i.register, value),
+                .segment_register  => |i| self.setSegmentRegisterValue(i.register, value),
+                .address           => |i| {
+                    const data: [2]u8 = @bitCast(value);
+                    if (i.is_wide) mem.copyForwards(u8, self.memory[i.address..], &data)
+                              else self.memory[i.address] = data[0];
+                },
+                .effective_address => |_| unreachable,
+                .immediate         => |_| unreachable,
+            }
+        }
+    };
+
+    pub const InstructionType = enum(u8) { nop, mov, add, sub, cmp };
     const instruction_definitions_separators = " |";
     const instruction_definitions_strings: []const []const u8 = &.{
+        "nop 10010000", // 0x90 do nothing instruction in fact it is a ax to ax move
+
         "mov 100010 d w | mod reg rm  | disp_lo | disp_hi",
         "mov 1100011  w | mod 000 rm  | disp_lo | disp_hi | data_lo | data_hi",
         "mov 1011 w reg | data_lo     | data_hi",
@@ -452,18 +592,11 @@ const CPU8086 = struct {
         };
     };
 
-    pub fn debugPrintInstructionDefinitions() void {
+    pub fn printInstructionDefinitions(writer: anytype) !void {
         for (instruction_definitions) |d| {
-            debug.print(
-                "type: {}\n" ++
-                "fields({d}): [\n",
-                .{ d.type, d.fields_count });
-
-            for (d.fields_buffer[0..d.fields_count]) |f| {
-                debug.print("  {{ {}, {b}, {d} }}\n", .{f.type, f.value, f.bits_count});
-            }
-
-            debug.print("]\n", .{});
+            try writer.print( "type: {}\nfields({d}): [\n", .{ d.type, d.fields_count });
+            for (d.fields_buffer[0..d.fields_count]) |f| { try writer.print("  {{ {}, {b}, {d} }}\n", .{f.type, f.value, f.bits_count}); }
+            try writer.print("]\n", .{});
         }
     }
 
@@ -534,13 +667,16 @@ const CPU8086 = struct {
 };
 
 
-test "decode8086" {
+test "8086.decode" {
     // setup
     const TestCase = struct {
         bytes:  []const u8,
         output: []const u8,
     };
     const test_cases = [_]TestCase{
+           // nop
+        .{ .bytes = "\x90", .output = "nop" },
+
           // basic register to register moves
         .{ .bytes = "\x89\xD9", .output = "mov cx, bx" },
         .{ .bytes = "\x88\xE5", .output = "mov ch, ah" },
@@ -726,12 +862,14 @@ test "decode8086" {
         }
     }
 
-    // summary
-    debug.print("\nrun {d} tests; passed: {d}; failed: {d}\n", .{
-        test_cases.len,
-        test_cases.len - failed_tests,
-        failed_tests
-    });
+    // summary if any failed
+    if (failed_tests > 0) {
+        debug.print("\nrun {d} tests; passed: {d}; failed: {d}\n", .{
+            test_cases.len,
+            test_cases.len - failed_tests,
+            failed_tests
+        });
+    }
 
     // if all succeeded then do the combined test
     // This combined test is important to make sure that we do not consume too
@@ -786,7 +924,7 @@ test "decode8086" {
             }
         }
 
-        // compare
+        // compare and print output if any failed
         const output = fbs.getWritten();
         if (mem.eql(u8, expected_output, output) == false) {
             debug.print("combined test failed\n" ++
@@ -805,8 +943,72 @@ test "decode8086" {
                     output,
                 }
             );
-        } else {
-            debug.print("combined test passed\n", .{});
         }
+    }
+}
+
+test "8086.Simulator" {
+    var simulator = std.mem.zeroes(CPU8086.Simulator);
+
+    // check if by default everything is zeroed out
+    inline for (@typeInfo(CPU8086.Register).Enum.fields) |field| {
+        const reg: CPU8086.Register = @enumFromInt(field.value);
+        try testing.expectEqual(simulator.getRegisterValue(reg), 0x0000);
+    }
+    try testing.expectEqual(simulator.ip, 0x0000);
+    for (simulator.memory) |m| { try testing.expectEqual(m, 0x00); }
+
+    // test registers set/get
+    var vi: u4 = 0;
+    inline for (@typeInfo(CPU8086.Register).Enum.fields) |field| {
+        const reg: CPU8086.Register = @enumFromInt(field.value);
+        if (vi == 0xf) vi = 1 else vi += 1;
+        var v: u16 = 0; v += vi; v <<= 4; v+= vi;
+        if (!reg.is8bit()) v = (v<<8)+v;
+        try simulator.setRegisterValue(reg, v);
+        try testing.expectEqual(simulator.getRegisterValue(reg), v);
+    }
+    inline for (@typeInfo(CPU8086.SegmentRegister).Enum.fields) |field| {
+        const reg: CPU8086.SegmentRegister = @enumFromInt(field.value);
+        if (vi == 0xf) vi = 1 else vi += 1;
+        var v: u16 = 0; v += vi; v <<= 4; v+= vi; v = (v<<8)+v;
+        simulator.setSegmentRegisterValue(reg, v);
+        try testing.expectEqual(simulator.getSegmentRegisterValue(reg), v);
+    }
+
+    // zero out our existing simulator by casting to bytes array and iterating over it
+    // NOTE: not necessary by any means but I'm leaving that bit of black magic
+    //       spell casting for future reference in case I need it <evil laugh>
+    const simbytes = @as([*]u8, @ptrCast(&simulator))[0..@sizeOf(@TypeOf(simulator))];
+    for (0..simbytes.len)|i|{simbytes[i]=0;}
+
+    // test instructions execution
+    const TestCase = struct {
+        mem: []const u8,       // input memory for the simulator
+        reg: CPU8086.Register, // the tested register
+        val: u16,              // expected value after simulation
+        msg: []const u8,       // what to print in case of failure
+    };
+    const test_cases = [_]TestCase{
+          // 8-bit immediate-to-register
+        .{ .mem = "\xB1\x0C", .reg = .cl, .val = 0x0c,   .msg = "mov cl, 12" },
+        .{ .mem = "\xB5\xF4", .reg = .ch, .val = 0xf4,   .msg = "mov ch, -12" },
+        .{ .mem = "",         .reg = .cx, .val = 0xf40c, .msg = "cx 0xf40c" },
+          // 16-bit immediate-to-register
+        .{ .mem = "\xB9\x0C\x00", .reg = .cx, .val = 0x000c, .msg = "mov cx, 12" },
+        .{ .mem = "\xB9\xF4\xFF", .reg = .cx, .val = 0xfff4, .msg = "mov cx, -12" },
+        .{ .mem = "\xBA\x6C\x0F", .reg = .dx, .val = 0x0f6c, .msg = "mov dx, 3948" },
+        .{ .mem = "\xBA\x94\xF0", .reg = .dx, .val = 0xf094, .msg = "mov dx, -3948" },
+
+    };
+
+    for (test_cases, 0..) |test_case, index| {
+        errdefer debug.print("failed on test case {d}: {s}\n", .{index, test_case.msg});
+        // setup - we do not reset or override memory - only append to it
+        mem.copyForwards(u8, simulator.memory[simulator.ip..], test_case.mem);
+        simulator.memory[simulator.ip + test_case.mem.len] = 0x90; // NOP at the end
+        // run and validate
+        try simulator.run();
+        try testing.expectEqual(test_case.val, simulator.getRegisterValue(test_case.reg));
     }
 }
