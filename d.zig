@@ -341,7 +341,7 @@ const CPU8086 = struct {
     // Writes given instruction in Assembly representation using given writer
     pub fn writeAsm(instruction: Instruction, writer: anytype) !void {
         try writer.print("{s}", .{@tagName(instruction.type)});
-        if (instruction.type == .nop) return;
+        if (instruction.type == .nop or instruction.type == .hlt) return;
         _ = try writer.write(" ");
         try writeAsmTarget(instruction.dst, false, writer);
         _ = try writer.write(", "); // separator between destination and target
@@ -458,11 +458,12 @@ const CPU8086 = struct {
                 if (try decode(memory_steram.reader())) |instruction| {
                     if (optional_logger) |logger| { try CPU8086.writeAsm(instruction, logger); }
                     switch (instruction.type) {
-                        .nop => break,
+                        .nop => {}, // do nothing
                         .mov => try self.mov(instruction.dst, instruction.src, optional_logger),
                         //.add => ,
                         //.sub => ,
                         //.cmp => ,
+                        .hlt => break,
                         else => unreachable,
                     }
                     self.ip += instruction.size;
@@ -518,9 +519,10 @@ const CPU8086 = struct {
         }
     };
 
-    pub const InstructionType = enum(u8) { nop, mov, add, sub, cmp };
+    pub const InstructionType = enum(u8) { hlt, nop, mov, add, sub, cmp };
     const instruction_definitions_separators = " |";
     const instruction_definitions_strings: []const []const u8 = &.{
+        "hlt 11110100", // halt the program
         "nop 10010000", // 0x90 do nothing instruction in fact it is a ax to ax move
 
         "mov 100010 d w | mod reg rm  | disp_lo | disp_hi",
@@ -698,9 +700,8 @@ test "8086.decode" {
         output: []const u8,
     };
     const test_cases = [_]TestCase{
-           // nop
+        .{ .bytes = "\xf4", .output = "hlt" },
         .{ .bytes = "\x90", .output = "nop" },
-
           // basic register to register moves
         .{ .bytes = "\x89\xd9", .output = "mov cx, bx" },
         .{ .bytes = "\x88\xe5", .output = "mov ch, ah" },
@@ -715,55 +716,43 @@ test "8086.decode" {
         .{ .bytes = "\x89\xc5", .output = "mov bp, ax" },
         .{ .bytes = "\x89\xde", .output = "mov si, bx" },
         .{ .bytes = "\x88\xc6", .output = "mov dh, al" },
-
           // 8-bit immediate-to-register
         .{ .bytes = "\xb1\x0c", .output = "mov cl, 12" },
         .{ .bytes = "\xb5\xf4", .output = "mov ch, -12" },
-
           // 16-bit immediate-to-register
         .{ .bytes = "\xb8\x34\x12", .output = "mov ax, 4660" },
         .{ .bytes = "\xb9\x0c\x00", .output = "mov cx, 12" },
         .{ .bytes = "\xb9\xf4\xff", .output = "mov cx, -12" },
         .{ .bytes = "\xba\x6c\x0f", .output = "mov dx, 3948" },
         .{ .bytes = "\xba\x94\xf0", .output = "mov dx, -3948" },
-
           // Source address calculation
         .{ .bytes = "\x8a\x00",     .output = "mov al, [bx + si]" },
         .{ .bytes = "\x8b\x1b",     .output = "mov bx, [bp + di]" },
         .{ .bytes = "\x8b\x56\x00", .output = "mov dx, [bp]"      },
-
           // Source address calculation plus 8-bit displacement
         .{ .bytes = "\x8a\x60\x04", .output = "mov ah, [bx + si + 4]" },
-
           // Source address calculation plus 16-bit displacement
         .{ .bytes = "\x8a\x80\x87\x13", .output = "mov al, [bx + si + 4999]" },
-
           // Dest address calculation
         .{ .bytes = "\x89\x09",     .output = "mov [bx + di], cx" },
         .{ .bytes = "\x88\x0a",     .output = "mov [bp + si], cl" },
         .{ .bytes = "\x88\x6e\x00", .output = "mov [bp], ch"      },
-
           // Signed displacements
         .{ .bytes = "\x8b\x41\xdb",     .output = "mov ax, [bx + di - 37]" },
         .{ .bytes = "\x89\x8c\xd4\xfe", .output = "mov [si - 300], cx"     },
         .{ .bytes = "\x8b\x57\xe0",     .output = "mov dx, [bx - 32]"      },
-
           // Explicit sizes
         .{ .bytes = "\xc6\x03\x07",             .output = "mov [bp + di], byte 7"    },
         .{ .bytes = "\xc7\x85\x85\x03\x5b\x01", .output = "mov [di + 901], word 347" },
-
           // Direct address
         .{ .bytes = "\x8b\x2e\x05\x00", .output = "mov bp, [5]" },
         .{ .bytes = "\x8b\x1e\x82\x0d", .output = "mov bx, [3458]" },
-
           // Memory-to-accumulator test
         .{ .bytes = "\xa1\xfb\x09", .output = "mov ax, [2555]" },
         .{ .bytes = "\xa1\x10\x00", .output = "mov ax, [16]" },
-
           // Accumulator-to-memory test
         .{ .bytes = "\xa3\xfa\x09", .output = "mov [2554], ax" },
         .{ .bytes = "\xa3\x0f\x00", .output = "mov [15], ax" },
-
           // adds
         .{ .bytes = "\x03\x18", .output = "add bx, [bx + si]" },
         .{ .bytes = "\x03\x5e\x00", .output = "add bx, [bp]" },    // id     sw  mod type rm
@@ -789,7 +778,6 @@ test "8086.decode" {
         .{ .bytes = "\x05\xe8\x03", .output = "add ax, 1000" },
         .{ .bytes = "\x04\xe2", .output = "add al, -30" },
         .{ .bytes = "\x04\x09", .output = "add al, 9" },
-
           // subs
         .{ .bytes = "\x2b\x18", .output = "sub bx, [bx + si]" },
         .{ .bytes = "\x2b\x5e\x00", .output = "sub bx, [bp]" },
@@ -815,7 +803,6 @@ test "8086.decode" {
         .{ .bytes = "\x2d\xe8\x03", .output = "sub ax, 1000" },
         .{ .bytes = "\x2c\xe2", .output = "sub al, -30" },
         .{ .bytes = "\x2c\x09", .output = "sub al, 9" },
-
           // cmp
         .{ .bytes = "\x3b\x18", .output = "cmp bx, [bx + si]" },
         .{ .bytes = "\x3b\x5e\x00", .output = "cmp bx, [bp]" },
@@ -1068,7 +1055,7 @@ test "8086.Simulator" {
             .{index, test_case.msg, output_buffer[0..fbs.pos]});
         // setup - we do not reset or override memory - only append to it
         mem.copyForwards(u8, simulator.memory[simulator.ip..], test_case.mem);
-        simulator.memory[simulator.ip + test_case.mem.len] = 0x90; // NOP at the end
+        simulator.memory[simulator.ip + test_case.mem.len] = 0xf4; // hlt at the end
         // run and validate
         try simulator.runWithLogger(logger);
         try testing.expectEqual(test_case.val, simulator.getRegisterValue(test_case.reg));
