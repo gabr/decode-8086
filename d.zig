@@ -452,41 +452,65 @@ const CPU8086 = struct {
         pub fn runWithLogger(self: *@This(), logger: anytype) !void { try self._run(@as(?@TypeOf(logger), logger)); }
 
         fn _run(self: *@This(), optional_logger: anytype) !void {
-            if (optional_logger) |logger| { _ = try logger.write("logger test\n"); }
+            if (optional_logger) |logger| { _ = try logger.write("simulator run...\n"); }
             while (true) {
                 var memory_steram = io.fixedBufferStream(self.memory[self.ip..]);
                 if (try decode(memory_steram.reader())) |instruction| {
+                    if (optional_logger) |logger| { try CPU8086.writeAsm(instruction, logger); }
                     switch (instruction.type) {
-                        .nop => return,
-                        .mov => try self.mov(instruction.dst, instruction.src),
+                        .nop => break,
+                        .mov => try self.mov(instruction.dst, instruction.src, optional_logger),
                         //.add => ,
                         //.sub => ,
                         //.cmp => ,
                         else => unreachable,
                     }
                     self.ip += instruction.size;
-                } else return;
+                } else break;
+                if (optional_logger) |logger| { _ = try logger.write("\n"); }
             }
+            if (optional_logger) |logger| { _ = try logger.write("\nsimulation end\n"); }
         }
 
-        fn mov(self: *@This(), dst: InstructionTarget, src: InstructionTarget) !void {
-            const value: u16 = switch (src) {
-                .register          => |i| self.getRegisterValue(i.register),
-                .segment_register  => |i| self.getSegmentRegisterValue(i.register),
-                .address           => |i| if (i.is_wide) @as(u16, @bitCast([_]u8{self.memory[i.address],self.memory[i.address+1]}))
-                                          else           @as(u16, @intCast(self.memory[i.address])),
+        fn mov(self: *@This(), dst: InstructionTarget, src: InstructionTarget, optional_logger: anytype) !void {
+            if (optional_logger) |logger| { _ = try logger.write("  ; "); }
+            var value: u16 = undefined;
+            switch (src) {
+                .register => |i| {
+                    value = self.getRegisterValue(i.register);
+                    if (optional_logger) |logger| try logger.print("from register {s}", .{@tagName(i.register)});
+                },
+                .segment_register => |i| {
+                    value = self.getSegmentRegisterValue(i.register);
+                    if (optional_logger) |logger| try logger.print("from segment register {s}", .{@tagName(i.register)});
+                },
+                .address => |i| {
+                    value = if (i.is_wide) @as(u16, @bitCast([_]u8{self.memory[i.address],self.memory[i.address+1]}))
+                            else           @as(u16, @intCast(self.memory[i.address]));
+                    if (optional_logger) |logger| try logger.print("from {s}address {d} (0x{x:0>4})", .{ (if (i.is_wide) "wide " else ""), value, value });
+                },
+                .immediate => |i| {
+                    value = if (i.is_wide) @as(u16, @bitCast(i.data)) // is that LISP (O.O)
+                            else           @as(u16, @intCast(@as(u8,  @bitCast(@as(i8, @intCast(i.data))))));
+                    if (optional_logger) |logger| try logger.print("immedate {s}value {d}", .{ (if (i.is_wide) "wide " else ""), i.data });
+                },
                 .effective_address => |_| unreachable,
-                .immediate         => |i| if (i.is_wide) @as(u16, @bitCast(i.data)) // is that LISP (O.O)
-                                          else           @as(u16, @intCast(@as(u8,  @bitCast(@as(i8, @intCast(i.data)))))),
-            };
-
+            }
+            if (optional_logger) |logger| try logger.print(", value {d} (0x{x:0>4}) ", .{value, value});
             switch (dst) {
-                .register          => |i| try self.setRegisterValue(i.register, value),
-                .segment_register  => |i| self.setSegmentRegisterValue(i.register, value),
-                .address           => |i| {
+                .register => |i| {
+                    try self.setRegisterValue(i.register, value);
+                    if (optional_logger) |logger| try logger.print("to register {s}", .{@tagName(i.register)});
+                },
+                .segment_register => |i| {
+                    self.setSegmentRegisterValue(i.register, value);
+                    if (optional_logger) |logger| try logger.print("to segment register {s}", .{@tagName(i.register)});
+                },
+                .address => |i| {
                     const data: [2]u8 = @bitCast(value);
                     if (i.is_wide) mem.copyForwards(u8, self.memory[i.address..], &data)
                               else self.memory[i.address] = data[0];
+                    if (optional_logger) |logger| try logger.print("to {s}address {d} (0x{x:0>4})", .{ (if (i.is_wide) "wide " else ""), i.address, i.address });
                 },
                 .effective_address => |_| unreachable,
                 .immediate         => |_| unreachable,
@@ -697,6 +721,7 @@ test "8086.decode" {
         .{ .bytes = "\xB5\xF4", .output = "mov ch, -12" },
 
           // 16-bit immediate-to-register
+        .{ .bytes = "\xb8\x34\x12", .output = "mov ax, 4660" },
         .{ .bytes = "\xB9\x0C\x00", .output = "mov cx, 12" },
         .{ .bytes = "\xB9\xF4\xFF", .output = "mov cx, -12" },
         .{ .bytes = "\xBA\x6C\x0F", .output = "mov dx, 3948" },
@@ -999,16 +1024,43 @@ test "8086.Simulator" {
         .{ .mem = "\xB9\xF4\xFF", .reg = .cx, .val = 0xfff4, .msg = "mov cx, -12" },
         .{ .mem = "\xBA\x6C\x0F", .reg = .dx, .val = 0x0f6c, .msg = "mov dx, 3948" },
         .{ .mem = "\xBA\x94\xF0", .reg = .dx, .val = 0xf094, .msg = "mov dx, -3948" },
-
+          // setup for next tests
+        .{ .mem = "\xb8\x34\x12", .reg = .ax, .val = 0x1234, .msg = "mov ax, 4660" },
+          // basic register to register moves
+        .{ .mem = "\x88\xc0", .reg = .al, .val = 0x34,   .msg = "mov al, al" },
+        .{ .mem = "\x88\xc1", .reg = .cl, .val = 0x34,   .msg = "mov cl, al" },
+        .{ .mem = "\x88\xc2", .reg = .dl, .val = 0x34,   .msg = "mov dl, al" },
+        .{ .mem = "\x88\xc3", .reg = .bl, .val = 0x34,   .msg = "mov bl, al" },
+        .{ .mem = "\x88\xc4", .reg = .ah, .val = 0x34,   .msg = "mov ah, al" },
+        .{ .mem = "\x88\xc5", .reg = .ch, .val = 0x34,   .msg = "mov ch, al" },
+        .{ .mem = "\x88\xc6", .reg = .dh, .val = 0x34,   .msg = "mov dh, al" },
+        .{ .mem = "\x88\xc7", .reg = .bh, .val = 0x34,   .msg = "mov bh, al" },
+          // reset register ax before continuing with the rest of register moves
+        .{ .mem = "\xb8\x34\x12", .reg = .ax, .val = 0x1234, .msg = "mov ax, 4660" },
+        .{ .mem = "\x89\xc0", .reg = .ax, .val = 0x1234, .msg = "mov ax, ax" },
+        .{ .mem = "\x89\xc1", .reg = .cx, .val = 0x1234, .msg = "mov cx, ax" },
+        .{ .mem = "\x89\xc2", .reg = .dx, .val = 0x1234, .msg = "mov dx, ax" },
+        .{ .mem = "\x89\xc3", .reg = .bx, .val = 0x1234, .msg = "mov bx, ax" },
+        .{ .mem = "\x89\xc4", .reg = .sp, .val = 0x1234, .msg = "mov sp, ax" },
+        .{ .mem = "\x89\xc5", .reg = .bp, .val = 0x1234, .msg = "mov bp, ax" },
+        .{ .mem = "\x89\xc6", .reg = .si, .val = 0x1234, .msg = "mov si, ax" },
+        .{ .mem = "\x89\xc7", .reg = .di, .val = 0x1234, .msg = "mov di, ax" },
     };
 
+    var output_buffer: [1024*1024]u8 = undefined;
+    var fbs = io.fixedBufferStream(&output_buffer);
+    const logger = fbs.writer();
     for (test_cases, 0..) |test_case, index| {
-        errdefer debug.print("failed on test case {d}: {s}\n", .{index, test_case.msg});
+        // reset the buffer at the end of the loop
+        defer fbs.reset();
+        // print details on failure
+        errdefer debug.print("failed on test case {d}: {s}\n{s}\n",
+            .{index, test_case.msg, output_buffer[0..fbs.pos]});
         // setup - we do not reset or override memory - only append to it
         mem.copyForwards(u8, simulator.memory[simulator.ip..], test_case.mem);
         simulator.memory[simulator.ip + test_case.mem.len] = 0x90; // NOP at the end
         // run and validate
-        try simulator.run();
+        try simulator.runWithLogger(logger);
         try testing.expectEqual(test_case.val, simulator.getRegisterValue(test_case.reg));
     }
 }
