@@ -487,7 +487,7 @@ const CPU8086 = struct {
                 .address => |i| {
                     value = if (i.is_wide) @as(u16, @bitCast([_]u8{self.memory[i.address],self.memory[i.address+1]}))
                             else           @as(u16, @intCast(self.memory[i.address]));
-                    if (optional_logger) |logger| try logger.print("from {s}address {d} (0x{x:0>4})", .{ (if (i.is_wide) "wide " else ""), value, value });
+                    if (optional_logger) |logger| try logger.print("from {s}address {d} (0x{x:0>4})", .{ (if (i.is_wide) "wide " else ""), i.address, i.address });
                 },
                 .immediate => |i| {
                     value = if (i.is_wide) @as(u16, @bitCast(i.data)) // is that LISP (O.O)
@@ -702,145 +702,145 @@ test "8086.decode" {
         .{ .bytes = "\x90", .output = "nop" },
 
           // basic register to register moves
-        .{ .bytes = "\x89\xD9", .output = "mov cx, bx" },
-        .{ .bytes = "\x88\xE5", .output = "mov ch, ah" },
-        .{ .bytes = "\x89\xDA", .output = "mov dx, bx" },
-        .{ .bytes = "\x89\xDE", .output = "mov si, bx" },
-        .{ .bytes = "\x89\xFB", .output = "mov bx, di" },
-        .{ .bytes = "\x88\xC8", .output = "mov al, cl" },
-        .{ .bytes = "\x88\xED", .output = "mov ch, ch" },
-        .{ .bytes = "\x89\xC3", .output = "mov bx, ax" },
-        .{ .bytes = "\x89\xF3", .output = "mov bx, si" },
-        .{ .bytes = "\x89\xFC", .output = "mov sp, di" },
-        .{ .bytes = "\x89\xC5", .output = "mov bp, ax" },
-        .{ .bytes = "\x89\xDE", .output = "mov si, bx" },
-        .{ .bytes = "\x88\xC6", .output = "mov dh, al" },
+        .{ .bytes = "\x89\xd9", .output = "mov cx, bx" },
+        .{ .bytes = "\x88\xe5", .output = "mov ch, ah" },
+        .{ .bytes = "\x89\xda", .output = "mov dx, bx" },
+        .{ .bytes = "\x89\xde", .output = "mov si, bx" },
+        .{ .bytes = "\x89\xfb", .output = "mov bx, di" },
+        .{ .bytes = "\x88\xc8", .output = "mov al, cl" },
+        .{ .bytes = "\x88\xed", .output = "mov ch, ch" },
+        .{ .bytes = "\x89\xc3", .output = "mov bx, ax" },
+        .{ .bytes = "\x89\xf3", .output = "mov bx, si" },
+        .{ .bytes = "\x89\xfc", .output = "mov sp, di" },
+        .{ .bytes = "\x89\xc5", .output = "mov bp, ax" },
+        .{ .bytes = "\x89\xde", .output = "mov si, bx" },
+        .{ .bytes = "\x88\xc6", .output = "mov dh, al" },
 
           // 8-bit immediate-to-register
-        .{ .bytes = "\xB1\x0C", .output = "mov cl, 12" },
-        .{ .bytes = "\xB5\xF4", .output = "mov ch, -12" },
+        .{ .bytes = "\xb1\x0c", .output = "mov cl, 12" },
+        .{ .bytes = "\xb5\xf4", .output = "mov ch, -12" },
 
           // 16-bit immediate-to-register
         .{ .bytes = "\xb8\x34\x12", .output = "mov ax, 4660" },
-        .{ .bytes = "\xB9\x0C\x00", .output = "mov cx, 12" },
-        .{ .bytes = "\xB9\xF4\xFF", .output = "mov cx, -12" },
-        .{ .bytes = "\xBA\x6C\x0F", .output = "mov dx, 3948" },
-        .{ .bytes = "\xBA\x94\xF0", .output = "mov dx, -3948" },
+        .{ .bytes = "\xb9\x0c\x00", .output = "mov cx, 12" },
+        .{ .bytes = "\xb9\xf4\xff", .output = "mov cx, -12" },
+        .{ .bytes = "\xba\x6c\x0f", .output = "mov dx, 3948" },
+        .{ .bytes = "\xba\x94\xf0", .output = "mov dx, -3948" },
 
           // Source address calculation
-        .{ .bytes = "\x8A\x00",     .output = "mov al, [bx + si]" },
-        .{ .bytes = "\x8B\x1B",     .output = "mov bx, [bp + di]" },
-        .{ .bytes = "\x8B\x56\x00", .output = "mov dx, [bp]"      },
+        .{ .bytes = "\x8a\x00",     .output = "mov al, [bx + si]" },
+        .{ .bytes = "\x8b\x1b",     .output = "mov bx, [bp + di]" },
+        .{ .bytes = "\x8b\x56\x00", .output = "mov dx, [bp]"      },
 
           // Source address calculation plus 8-bit displacement
-        .{ .bytes = "\x8A\x60\x04", .output = "mov ah, [bx + si + 4]" },
+        .{ .bytes = "\x8a\x60\x04", .output = "mov ah, [bx + si + 4]" },
 
           // Source address calculation plus 16-bit displacement
-        .{ .bytes = "\x8A\x80\x87\x13", .output = "mov al, [bx + si + 4999]" },
+        .{ .bytes = "\x8a\x80\x87\x13", .output = "mov al, [bx + si + 4999]" },
 
           // Dest address calculation
         .{ .bytes = "\x89\x09",     .output = "mov [bx + di], cx" },
-        .{ .bytes = "\x88\x0A",     .output = "mov [bp + si], cl" },
-        .{ .bytes = "\x88\x6E\x00", .output = "mov [bp], ch"      },
+        .{ .bytes = "\x88\x0a",     .output = "mov [bp + si], cl" },
+        .{ .bytes = "\x88\x6e\x00", .output = "mov [bp], ch"      },
 
           // Signed displacements
-        .{ .bytes = "\x8B\x41\xDB",     .output = "mov ax, [bx + di - 37]" },
-        .{ .bytes = "\x89\x8C\xD4\xFE", .output = "mov [si - 300], cx"     },
-        .{ .bytes = "\x8B\x57\xE0",     .output = "mov dx, [bx - 32]"      },
+        .{ .bytes = "\x8b\x41\xdb",     .output = "mov ax, [bx + di - 37]" },
+        .{ .bytes = "\x89\x8c\xd4\xfe", .output = "mov [si - 300], cx"     },
+        .{ .bytes = "\x8b\x57\xe0",     .output = "mov dx, [bx - 32]"      },
 
           // Explicit sizes
-        .{ .bytes = "\xC6\x03\x07",             .output = "mov [bp + di], byte 7"    },
-        .{ .bytes = "\xC7\x85\x85\x03\x5B\x01", .output = "mov [di + 901], word 347" },
+        .{ .bytes = "\xc6\x03\x07",             .output = "mov [bp + di], byte 7"    },
+        .{ .bytes = "\xc7\x85\x85\x03\x5b\x01", .output = "mov [di + 901], word 347" },
 
           // Direct address
-        .{ .bytes = "\x8B\x2E\x05\x00", .output = "mov bp, [5]" },
-        .{ .bytes = "\x8B\x1E\x82\x0D", .output = "mov bx, [3458]" },
+        .{ .bytes = "\x8b\x2e\x05\x00", .output = "mov bp, [5]" },
+        .{ .bytes = "\x8b\x1e\x82\x0d", .output = "mov bx, [3458]" },
 
           // Memory-to-accumulator test
-        .{ .bytes = "\xA1\xFB\x09", .output = "mov ax, [2555]" },
-        .{ .bytes = "\xA1\x10\x00", .output = "mov ax, [16]" },
+        .{ .bytes = "\xa1\xfb\x09", .output = "mov ax, [2555]" },
+        .{ .bytes = "\xa1\x10\x00", .output = "mov ax, [16]" },
 
           // Accumulator-to-memory test
-        .{ .bytes = "\xA3\xFA\x09", .output = "mov [2554], ax" },
-        .{ .bytes = "\xA3\x0F\x00", .output = "mov [15], ax" },
+        .{ .bytes = "\xa3\xfa\x09", .output = "mov [2554], ax" },
+        .{ .bytes = "\xa3\x0f\x00", .output = "mov [15], ax" },
 
           // adds
         .{ .bytes = "\x03\x18", .output = "add bx, [bx + si]" },
-        .{ .bytes = "\x03\x5E\x00", .output = "add bx, [bp]" },    // id     sw  mod type rm
-        .{ .bytes = "\x83\xC6\x02\x00", .output = "add si, 2" },
-        .{ .bytes = "\x83\xC5\x02\x00", .output = "add bp, 2" },
-        .{ .bytes = "\x83\xC1\x08\x00", .output = "add cx, 8" },
-        .{ .bytes = "\x03\x5E\x00", .output = "add bx, [bp]" },
-        .{ .bytes = "\x03\x4F\x02", .output = "add cx, [bx + 2]" },
-        .{ .bytes = "\x02\x7A\x04", .output = "add bh, [bp + si + 4]" },
-        .{ .bytes = "\x03\x7B\x06", .output = "add di, [bp + di + 6]" },
+        .{ .bytes = "\x03\x5e\x00", .output = "add bx, [bp]" },    // id     sw  mod type rm
+        .{ .bytes = "\x83\xc6\x02\x00", .output = "add si, 2" },
+        .{ .bytes = "\x83\xc5\x02\x00", .output = "add bp, 2" },
+        .{ .bytes = "\x83\xc1\x08\x00", .output = "add cx, 8" },
+        .{ .bytes = "\x03\x5e\x00", .output = "add bx, [bp]" },
+        .{ .bytes = "\x03\x4f\x02", .output = "add cx, [bx + 2]" },
+        .{ .bytes = "\x02\x7a\x04", .output = "add bh, [bp + si + 4]" },
+        .{ .bytes = "\x03\x7b\x06", .output = "add di, [bp + di + 6]" },
         .{ .bytes = "\x01\x18", .output = "add [bx + si], bx" },
-        .{ .bytes = "\x01\x5E\x00", .output = "add [bp], bx" },
-        .{ .bytes = "\x01\x5E\x00", .output = "add [bp], bx" },
-        .{ .bytes = "\x01\x4F\x02", .output = "add [bx + 2], cx" },
-        .{ .bytes = "\x00\x7A\x04", .output = "add [bp + si + 4], bh" },
-        .{ .bytes = "\x01\x7B\x06", .output = "add [bp + di + 6], di" },
+        .{ .bytes = "\x01\x5e\x00", .output = "add [bp], bx" },
+        .{ .bytes = "\x01\x5e\x00", .output = "add [bp], bx" },
+        .{ .bytes = "\x01\x4f\x02", .output = "add [bx + 2], cx" },
+        .{ .bytes = "\x00\x7a\x04", .output = "add [bp + si + 4], bh" },
+        .{ .bytes = "\x01\x7b\x06", .output = "add [bp + di + 6], di" },
         .{ .bytes = "\x80\x07\x22", .output = "add [bx], byte 34" },
-        .{ .bytes = "\x83\x82\xE8\x03\x1D\x00", .output = "add [bp + si + 1000], word 29" },
+        .{ .bytes = "\x83\x82\xe8\x03\x1d\x00", .output = "add [bp + si + 1000], word 29" },
         .{ .bytes = "\x03\x46\x00", .output = "add ax, [bp]" },
         .{ .bytes = "\x02\x00", .output = "add al, [bx + si]" },
-        .{ .bytes = "\x01\xD8", .output = "add ax, bx" },
-        .{ .bytes = "\x00\xE0", .output = "add al, ah" },
-        .{ .bytes = "\x05\xE8\x03", .output = "add ax, 1000" },
-        .{ .bytes = "\x04\xE2", .output = "add al, -30" },
+        .{ .bytes = "\x01\xd8", .output = "add ax, bx" },
+        .{ .bytes = "\x00\xe0", .output = "add al, ah" },
+        .{ .bytes = "\x05\xe8\x03", .output = "add ax, 1000" },
+        .{ .bytes = "\x04\xe2", .output = "add al, -30" },
         .{ .bytes = "\x04\x09", .output = "add al, 9" },
 
           // subs
-        .{ .bytes = "\x2B\x18", .output = "sub bx, [bx + si]" },
-        .{ .bytes = "\x2B\x5E\x00", .output = "sub bx, [bp]" },
-        .{ .bytes = "\x83\xEE\x02\x00", .output = "sub si, 2" },
-        .{ .bytes = "\x83\xED\x02\x00", .output = "sub bp, 2" },
-        .{ .bytes = "\x83\xE9\x08\x00", .output = "sub cx, 8" },
-        .{ .bytes = "\x2B\x5E\x00", .output = "sub bx, [bp]" },
-        .{ .bytes = "\x2B\x4F\x02", .output = "sub cx, [bx + 2]" },
-        .{ .bytes = "\x2A\x7A\x04", .output = "sub bh, [bp + si + 4]" },
-        .{ .bytes = "\x2B\x7B\x06", .output = "sub di, [bp + di + 6]" },
+        .{ .bytes = "\x2b\x18", .output = "sub bx, [bx + si]" },
+        .{ .bytes = "\x2b\x5e\x00", .output = "sub bx, [bp]" },
+        .{ .bytes = "\x83\xee\x02\x00", .output = "sub si, 2" },
+        .{ .bytes = "\x83\xed\x02\x00", .output = "sub bp, 2" },
+        .{ .bytes = "\x83\xe9\x08\x00", .output = "sub cx, 8" },
+        .{ .bytes = "\x2b\x5e\x00", .output = "sub bx, [bp]" },
+        .{ .bytes = "\x2b\x4f\x02", .output = "sub cx, [bx + 2]" },
+        .{ .bytes = "\x2a\x7a\x04", .output = "sub bh, [bp + si + 4]" },
+        .{ .bytes = "\x2b\x7b\x06", .output = "sub di, [bp + di + 6]" },
         .{ .bytes = "\x29\x18", .output = "sub [bx + si], bx" },
-        .{ .bytes = "\x29\x5E\x00", .output = "sub [bp], bx" },
-        .{ .bytes = "\x29\x5E\x00", .output = "sub [bp], bx" },
-        .{ .bytes = "\x29\x4F\x02", .output = "sub [bx + 2], cx" },
-        .{ .bytes = "\x28\x7A\x04", .output = "sub [bp + si + 4], bh" },
-        .{ .bytes = "\x29\x7B\x06", .output = "sub [bp + di + 6], di" },
-        .{ .bytes = "\x80\x2F\x22", .output = "sub [bx], byte 34" },
-        .{ .bytes = "\x83\x29\x1D\x00", .output = "sub [bx + di], word 29" },
-        .{ .bytes = "\x2B\x46\x00", .output = "sub ax, [bp]" },
-        .{ .bytes = "\x2A\x00", .output = "sub al, [bx + si]" },
-        .{ .bytes = "\x29\xD8", .output = "sub ax, bx" },
-        .{ .bytes = "\x28\xE0", .output = "sub al, ah" },
-        .{ .bytes = "\x2D\xE8\x03", .output = "sub ax, 1000" },
-        .{ .bytes = "\x2C\xE2", .output = "sub al, -30" },
-        .{ .bytes = "\x2C\x09", .output = "sub al, 9" },
+        .{ .bytes = "\x29\x5e\x00", .output = "sub [bp], bx" },
+        .{ .bytes = "\x29\x5e\x00", .output = "sub [bp], bx" },
+        .{ .bytes = "\x29\x4f\x02", .output = "sub [bx + 2], cx" },
+        .{ .bytes = "\x28\x7a\x04", .output = "sub [bp + si + 4], bh" },
+        .{ .bytes = "\x29\x7b\x06", .output = "sub [bp + di + 6], di" },
+        .{ .bytes = "\x80\x2f\x22", .output = "sub [bx], byte 34" },
+        .{ .bytes = "\x83\x29\x1d\x00", .output = "sub [bx + di], word 29" },
+        .{ .bytes = "\x2b\x46\x00", .output = "sub ax, [bp]" },
+        .{ .bytes = "\x2a\x00", .output = "sub al, [bx + si]" },
+        .{ .bytes = "\x29\xd8", .output = "sub ax, bx" },
+        .{ .bytes = "\x28\xe0", .output = "sub al, ah" },
+        .{ .bytes = "\x2d\xe8\x03", .output = "sub ax, 1000" },
+        .{ .bytes = "\x2c\xe2", .output = "sub al, -30" },
+        .{ .bytes = "\x2c\x09", .output = "sub al, 9" },
 
           // cmp
-        .{ .bytes = "\x3B\x18", .output = "cmp bx, [bx + si]" },
-        .{ .bytes = "\x3B\x5E\x00", .output = "cmp bx, [bp]" },
-        .{ .bytes = "\x83\xFE\x02\x00", .output = "cmp si, 2" },
-        .{ .bytes = "\x83\xFD\x02\x00", .output = "cmp bp, 2" },
-        .{ .bytes = "\x83\xF9\x08\x00", .output = "cmp cx, 8" },
-        .{ .bytes = "\x3B\x5E\x00", .output = "cmp bx, [bp]" },
-        .{ .bytes = "\x3B\x4F\x02", .output = "cmp cx, [bx + 2]" },
-        .{ .bytes = "\x3A\x7A\x04", .output = "cmp bh, [bp + si + 4]" },
-        .{ .bytes = "\x3B\x7B\x06", .output = "cmp di, [bp + di + 6]" },
+        .{ .bytes = "\x3b\x18", .output = "cmp bx, [bx + si]" },
+        .{ .bytes = "\x3b\x5e\x00", .output = "cmp bx, [bp]" },
+        .{ .bytes = "\x83\xfe\x02\x00", .output = "cmp si, 2" },
+        .{ .bytes = "\x83\xfd\x02\x00", .output = "cmp bp, 2" },
+        .{ .bytes = "\x83\xf9\x08\x00", .output = "cmp cx, 8" },
+        .{ .bytes = "\x3b\x5e\x00", .output = "cmp bx, [bp]" },
+        .{ .bytes = "\x3b\x4f\x02", .output = "cmp cx, [bx + 2]" },
+        .{ .bytes = "\x3a\x7a\x04", .output = "cmp bh, [bp + si + 4]" },
+        .{ .bytes = "\x3b\x7b\x06", .output = "cmp di, [bp + di + 6]" },
         .{ .bytes = "\x39\x18", .output = "cmp [bx + si], bx" },
-        .{ .bytes = "\x39\x5E\x00", .output = "cmp [bp], bx" },
-        .{ .bytes = "\x39\x5E\x00", .output = "cmp [bp], bx" },
-        .{ .bytes = "\x39\x4F\x02", .output = "cmp [bx + 2], cx" },
-        .{ .bytes = "\x38\x7A\x04", .output = "cmp [bp + si + 4], bh" },
-        .{ .bytes = "\x39\x7B\x06", .output = "cmp [bp + di + 6], di" },
-        .{ .bytes = "\x80\x3F\x22", .output = "cmp [bx], byte 34" },
-        .{ .bytes = "\x83\x3E\xE2\x12\x1D\x00", .output = "cmp [4834], word 29" },
-        .{ .bytes = "\x3B\x46\x00", .output = "cmp ax, [bp]" },
-        .{ .bytes = "\x3A\x00", .output = "cmp al, [bx + si]" },
-        .{ .bytes = "\x39\xD8", .output = "cmp ax, bx" },
-        .{ .bytes = "\x38\xE0", .output = "cmp al, ah" },
-        .{ .bytes = "\x3D\xE8\x03", .output = "cmp ax, 1000" },
-        .{ .bytes = "\x3C\xE2", .output = "cmp al, -30" },
-        .{ .bytes = "\x3C\x09", .output = "cmp al, 9" },
+        .{ .bytes = "\x39\x5e\x00", .output = "cmp [bp], bx" },
+        .{ .bytes = "\x39\x5e\x00", .output = "cmp [bp], bx" },
+        .{ .bytes = "\x39\x4f\x02", .output = "cmp [bx + 2], cx" },
+        .{ .bytes = "\x38\x7a\x04", .output = "cmp [bp + si + 4], bh" },
+        .{ .bytes = "\x39\x7b\x06", .output = "cmp [bp + di + 6], di" },
+        .{ .bytes = "\x80\x3f\x22", .output = "cmp [bx], byte 34" },
+        .{ .bytes = "\x83\x3e\xe2\x12\x1d\x00", .output = "cmp [4834], word 29" },
+        .{ .bytes = "\x3b\x46\x00", .output = "cmp ax, [bp]" },
+        .{ .bytes = "\x3a\x00", .output = "cmp al, [bx + si]" },
+        .{ .bytes = "\x39\xd8", .output = "cmp ax, bx" },
+        .{ .bytes = "\x38\xe0", .output = "cmp al, ah" },
+        .{ .bytes = "\x3d\xe8\x03", .output = "cmp ax, 1000" },
+        .{ .bytes = "\x3c\xe2", .output = "cmp al, -30" },
+        .{ .bytes = "\x3c\x09", .output = "cmp al, 9" },
     };
 
     var output_buffer: [test_cases.len*32]u8 = undefined;
@@ -1016,14 +1016,14 @@ test "8086.Simulator" {
     };
     const test_cases = [_]TestCase{
           // 8-bit immediate-to-register
-        .{ .mem = "\xB1\x0C", .reg = .cl, .val = 0x0c,   .msg = "mov cl, 12" },
-        .{ .mem = "\xB5\xF4", .reg = .ch, .val = 0xf4,   .msg = "mov ch, -12" },
+        .{ .mem = "\xb1\x0c", .reg = .cl, .val = 0x0c,   .msg = "mov cl, 12" },
+        .{ .mem = "\xb5\xf4", .reg = .ch, .val = 0xf4,   .msg = "mov ch, -12" },
         .{ .mem = "",         .reg = .cx, .val = 0xf40c, .msg = "cx 0xf40c" },
           // 16-bit immediate-to-register
-        .{ .mem = "\xB9\x0C\x00", .reg = .cx, .val = 0x000c, .msg = "mov cx, 12" },
-        .{ .mem = "\xB9\xF4\xFF", .reg = .cx, .val = 0xfff4, .msg = "mov cx, -12" },
-        .{ .mem = "\xBA\x6C\x0F", .reg = .dx, .val = 0x0f6c, .msg = "mov dx, 3948" },
-        .{ .mem = "\xBA\x94\xF0", .reg = .dx, .val = 0xf094, .msg = "mov dx, -3948" },
+        .{ .mem = "\xb9\x0c\x00", .reg = .cx, .val = 0x000c, .msg = "mov cx, 12" },
+        .{ .mem = "\xb9\xf4\xff", .reg = .cx, .val = 0xfff4, .msg = "mov cx, -12" },
+        .{ .mem = "\xba\x6c\x0f", .reg = .dx, .val = 0x0f6c, .msg = "mov dx, 3948" },
+        .{ .mem = "\xba\x94\xf0", .reg = .dx, .val = 0xf094, .msg = "mov dx, -3948" },
           // setup for next tests
         .{ .mem = "\xb8\x34\x12", .reg = .ax, .val = 0x1234, .msg = "mov ax, 4660" },
           // basic register to register moves
@@ -1045,8 +1045,18 @@ test "8086.Simulator" {
         .{ .mem = "\x89\xc5", .reg = .bp, .val = 0x1234, .msg = "mov bp, ax" },
         .{ .mem = "\x89\xc6", .reg = .si, .val = 0x1234, .msg = "mov si, ax" },
         .{ .mem = "\x89\xc7", .reg = .di, .val = 0x1234, .msg = "mov di, ax" },
+          // Accumulator-to-memory test
+        .{ .mem = "\xa3\x00\xf0", .reg = .ax, .val = 0x1234, .msg = "mov [61440], ax" }, // 61440 -> 0xf000
+        .{ .mem = "\xa3\x64\x00", .reg = .ax, .val = 0x1234, .msg = "mov [100], ax" },   // 100   -> 0x64
+          // Direct address
+        .{ .mem = "\x8b\x2e\x64\x00", .reg = .bp, .val = 0x1234, .msg = "mov bp, [100]" },
+        .{ .mem = "\x8b\x1e\x00\xf0", .reg = .bx, .val = 0x1234, .msg = "mov bx, [61440]" },
+          // setup for next tests
+          // Source address calculation
+        //.{ .mem = "\x8a\x00",     .reg = ., .val =, .msg = "mov al, [bx + si]" },
+        //.{ .mem = "\x8b\x1b",     .reg = ., .val =, .msg = "mov bx, [bp + di]" },
+        //.{ .mem = "\x8b\x56\x00", .reg = ., .val =, .msg = "mov dx, [bp]"      },
     };
-
     var output_buffer: [1024*1024]u8 = undefined;
     var fbs = io.fixedBufferStream(&output_buffer);
     const logger = fbs.writer();
