@@ -480,7 +480,7 @@ const CPU8086 = struct {
                     try logger.print("from segment register {s}", .{@tagName(i.register)});
                 },
                 .address => |i| {
-                    value = if (i.is_wide) @as(u16, @bitCast([_]u8{self.memory[i.address],self.memory[i.address+1]}))
+                    value = if (i.is_wide) @as(u16, @bitCast([_]u8{self.memory[i.address+1],self.memory[i.address]}))
                             else           @as(u16, @intCast(self.memory[i.address]));
                     is_wide = i.is_wide;
                     try logger.print("from {s}address {d} (0x{x:0>4})", .{ (if (i.is_wide) "wide " else ""), i.address, i.address });
@@ -492,16 +492,22 @@ const CPU8086 = struct {
                     try logger.print("immedate {s}value {d}", .{ (if (i.is_wide) "wide " else ""), i.data });
                 },
                 .effective_address => |i| {
-                    const address = self.getEffectiveAddress(i);
-                    value = @as(u16, @bitCast([_]u8{self.memory[address],self.memory[address+1]}));
-                    is_wide = true;
+                    is_wide = switch (dst) {
+                        .register          => |d| d.register.is8bit() == false,
+                        .segment_register  => |_| true,
+                        .address           => |d| d.is_wide,
+                        .effective_address => |_| unreachable,
+                        .immediate         => |_| unreachable,
+                    };
+                    const address = try self.getEffectiveAddress(i, logger);
+                    value = if (is_wide) @as(u16, @bitCast([_]u8{self.memory[address+1],self.memory[address]}))
+                            else         @as(u16, @intCast(self.memory[address]));
                     try logger.print("from effective address {d} (0x{x:0>4})", .{ address, address });
                 },
             }
-            try logger.print(", {s}value {d} (0x{x:0>4}) ", .{(if (is_wide) "wide" else ""), value, value});
+            try logger.print(", {s}value {d} (0x{x:0>4}) ", .{(if (is_wide) "wide " else ""), value, value});
             switch (dst) {
                 .register => |i| {
-                    if (i.register.is8bit()) value = value & 0x00ff;
                     try self.setRegisterValue(i.register, value);
                     try logger.print("to register {s}", .{@tagName(i.register)});
                 },
@@ -511,13 +517,13 @@ const CPU8086 = struct {
                 },
                 .address => |i| {
                     const data: [2]u8 = @bitCast(value);
-                    if (is_wide) mem.copyForwards(u8, self.memory[i.address..], &data)
-                            else self.memory[i.address] = data[0];
+                    if (is_wide) { self.memory[i.address] = data[1];  self.memory[i.address+1] = data[0]; }
+                            else { self.memory[i.address] = data[0]; }
                     try logger.print("to {s}address {d} (0x{x:0>4})", .{ (if (i.is_wide) "wide " else ""), i.address, i.address });
                 },
                 .effective_address => |i| {
                     const data: [2]u8 = @bitCast(value);
-                    const address = self.getEffectiveAddress(i);
+                    const address = try self.getEffectiveAddress(i, logger);
                     if (is_wide) mem.copyForwards(u8, self.memory[address..], &data)
                             else self.memory[address] = data[0];
                     try logger.print("to effective address {d} (0x{x:0>4})", .{ address, address });
@@ -526,20 +532,36 @@ const CPU8086 = struct {
             }
         }
 
-        fn getEffectiveAddress(self: @This(), target: EffectiveAddressTarget) u16 {
-            const address: i32 = @as(i32, (switch (target.type) {
-                .bx_si => @as(i32, self.getRegisterValue(.bx)) + @as(i32, self.getRegisterValue(.si)),
-                .bx_di => @as(i32, self.getRegisterValue(.bx)) + @as(i32, self.getRegisterValue(.di)),
-                .bp_si => @as(i32, self.getRegisterValue(.bp)) + @as(i32, self.getRegisterValue(.si)),
-                .bp_di => @as(i32, self.getRegisterValue(.bp)) + @as(i32, self.getRegisterValue(.di)),
-                .si    => self.getRegisterValue(.si),
-                .di    => self.getRegisterValue(.di),
-                .bp    => self.getRegisterValue(.bp),
-                .bx    => self.getRegisterValue(.bx),
-            })) + target.disp_offset;
-            return if (address < 0)                return @as(u16, 0)
-              else if (address > math.maxInt(u16)) return math.maxInt(u16)
-              else                                 return @intCast(address);
+        fn logAndAddRegisters(self: @This(), r1: Register, r2: Register, logger: anytype) !i32 {
+            const v1: i32 = @intCast(self.getRegisterValue(r1));
+            const v2: i32 = @intCast(self.getRegisterValue(r2));
+            try logger.print("{d}+{d}", .{v1, v2});
+            return v1 + v2;
+        }
+        fn logRegister(self: @This(), r: Register, logger: anytype) !i32 {
+            const v: i32 = @intCast(self.getRegisterValue(r));
+            try logger.print("{d}", .{v});
+            return v;
+        }
+        fn getEffectiveAddress(self: @This(), target: EffectiveAddressTarget, logger: anytype) !u16 {
+            _ = try logger.write("[");
+            var address: i32 = switch (target.type) {
+                .bx_si => try self.logAndAddRegisters(.bx, .si, logger),
+                .bx_di => try self.logAndAddRegisters(.bx, .di, logger),
+                .bp_si => try self.logAndAddRegisters(.bp, .si, logger),
+                .bp_di => try self.logAndAddRegisters(.bp, .di, logger),
+                .si    => try self.logRegister(.si, logger),
+                .di    => try self.logRegister(.di, logger),
+                .bp    => try self.logRegister(.bp, logger),
+                .bx    => try self.logRegister(.bx, logger),
+            };
+            if (target.disp_offset > 0) { try logger.print("+{d}", .{ target.disp_offset}); }
+            else                        { try logger.print("-{d}", .{-target.disp_offset}); }
+            _ = try logger.write("]");
+            address += target.disp_offset;
+            return  if (address < 0)                return @as(u16, 0)
+               else if (address > math.maxInt(u16)) return math.maxInt(u16)
+               else                                 return @intCast(address);
         }
     };
 
@@ -1071,9 +1093,15 @@ test "8086.Simulator" {
         .{ .mem = "\xbf\x28\x00", .reg = .si, .val = 0x0028, .msg = "mov di, 40" },
         .{ .mem = "\xa3\xd8\xef", .reg = .ax, .val = 0x1234, .msg = "mov [61400], ax" },
           // Source address calculation
-        .{ .mem = "\x8a\x00",     .reg = .al, .val = 0x34,   .msg = "mov al, [bx + si]" },
+        .{ .mem = "\x8a\x00",     .reg = .al, .val = 0x12,   .msg = "mov al, [bx + si]" },
         .{ .mem = "\x8b\x1b",     .reg = .bx, .val = 0x1234, .msg = "mov bx, [bp + di]" },
         .{ .mem = "\x8b\x56\x00", .reg = .dx, .val = 0x1234, .msg = "mov dx, [bp]"      },
+          // reset bx to have correct address
+        .{ .mem = "\xbb\xd8\xef", .reg = .bx, .val = 0xefd8, .msg = "mov bx, 61400" },  // bx and si should give 61440 -> 0xf000
+        .{ .mem = "\xbe\x28\x00", .reg = .si, .val = 0x0028, .msg = "mov si, 40" },
+        .{ .mem = "\xb8\x34\x12", .reg = .ax, .val = 0x1234, .msg = "mov ax, 4660" },
+        .{ .mem = "\xa3\x08\xf0", .reg = .ax, .val = 0x1234, .msg = "mov [61448], ax" },
+        .{ .mem = "\x8a\x60\x08", .reg = .ah, .val = 0x12,   .msg = "mov ah, [bx + si + 8]" },
     };
     var output_buffer: [1024*1024]u8 = undefined;
     var fbs = io.fixedBufferStream(&output_buffer);
