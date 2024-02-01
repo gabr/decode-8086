@@ -61,7 +61,7 @@ pub fn main() !void {
         var simulator = mem.zeroes(CPU8086.Simulator);
         // put "mov cl, 12" instruction into memory
         std.mem.copyForwards(u8, &simulator.memory, "\xB1\x0C");
-        try simulator.runWithLogger(stdout_file);
+        try simulator.run(stdout_file);
         try simulator.setRegisterValue(.ah, 0x0011);
         try simulator.printRegisters();
     }
@@ -131,7 +131,6 @@ const CPU8086 = struct {
     pub const EffectiveAddress = enum(u8) { bx_si, bx_di, bp_si, bp_di, si, di, bp, bx, };
     pub const EffectiveAddressTarget = struct {
         type:        EffectiveAddress,
-        is_wide:     bool,
         disp_offset: i16,
 
         pub fn fromFields(rm: u3, mod: u2, disp_lo: u8, disp_hi: u8) EffectiveAddressTarget {
@@ -143,7 +142,6 @@ const CPU8086 = struct {
 
             return .{
                 .type        = @enumFromInt(rm),
-                .is_wide     = mod == 0b10,
                 .disp_offset = disp_offset,
             };
         }
@@ -388,12 +386,8 @@ const CPU8086 = struct {
     ///     std.mem.copyForwards(u8, simulator.memory, "\xB1\x0C");
     ///     // instruction pointer already has value of 0 so it points
     ///     // at the first instruction
-    ///     try simulator.run(); // run without logger
-    ///
-    /// You can also call .runWithLogger and pass any type which implements
-    /// io/writer.zig from std:
-    ///
-    ///     try simulator.runWithLogger(io.getStdOut().writer());
+    ///     try simulator.run(logger); // run, the logger is any type which
+    ///                                // implements io/writer.zig from std
     ///
     pub const Simulator = struct {
         memory:    [math.maxInt(u16)]u8,
@@ -448,18 +442,15 @@ const CPU8086 = struct {
             debug.print("{s}: 0x{x:0>4}\n", .{@tagName(SegmentRegister.ds), self.getSegmentRegisterValue(SegmentRegister.ds)});
         }
 
-        pub fn run          (self: *@This()                 ) !void { try self._run(null); }
-        pub fn runWithLogger(self: *@This(), logger: anytype) !void { try self._run(@as(?@TypeOf(logger), logger)); }
-
-        fn _run(self: *@This(), optional_logger: anytype) !void {
-            if (optional_logger) |logger| { _ = try logger.write("simulator run...\n"); }
+        pub fn run(self: *@This(), logger: anytype) !void {
+            _ = try logger.write("simulator run...\n");
             while (true) {
                 var memory_steram = io.fixedBufferStream(self.memory[self.ip..]);
                 if (try decode(memory_steram.reader())) |instruction| {
-                    if (optional_logger) |logger| { try CPU8086.writeAsm(instruction, logger); }
+                    try CPU8086.writeAsm(instruction, logger);
                     switch (instruction.type) {
                         .nop => {}, // do nothing
-                        .mov => try self.mov(instruction.dst, instruction.src, optional_logger),
+                        .mov => try self.mov(instruction.dst, instruction.src, logger),
                         //.add => ,
                         //.sub => ,
                         //.cmp => ,
@@ -468,54 +459,87 @@ const CPU8086 = struct {
                     }
                     self.ip += instruction.size;
                 } else break;
-                if (optional_logger) |logger| { _ = try logger.write("\n"); }
+                _ = try logger.write("\n");
             }
-            if (optional_logger) |logger| { _ = try logger.write("\nsimulation end\n"); }
+            _ = try logger.write("\nsimulation end\n");
         }
 
-        fn mov(self: *@This(), dst: InstructionTarget, src: InstructionTarget, optional_logger: anytype) !void {
-            if (optional_logger) |logger| { _ = try logger.write("  ; "); }
-            var value: u16 = undefined;
+        fn mov(self: *@This(), dst: InstructionTarget, src: InstructionTarget, logger: anytype) !void {
+            _ = try logger.write("  ; ");
+            var value:   u16  = undefined;
+            var is_wide: bool = undefined;
             switch (src) {
                 .register => |i| {
                     value = self.getRegisterValue(i.register);
-                    if (optional_logger) |logger| try logger.print("from register {s}", .{@tagName(i.register)});
+                    is_wide = i.register.is8bit() == false;
+                    try logger.print("from register {s}", .{@tagName(i.register)});
                 },
                 .segment_register => |i| {
                     value = self.getSegmentRegisterValue(i.register);
-                    if (optional_logger) |logger| try logger.print("from segment register {s}", .{@tagName(i.register)});
+                    is_wide = true;
+                    try logger.print("from segment register {s}", .{@tagName(i.register)});
                 },
                 .address => |i| {
                     value = if (i.is_wide) @as(u16, @bitCast([_]u8{self.memory[i.address],self.memory[i.address+1]}))
                             else           @as(u16, @intCast(self.memory[i.address]));
-                    if (optional_logger) |logger| try logger.print("from {s}address {d} (0x{x:0>4})", .{ (if (i.is_wide) "wide " else ""), i.address, i.address });
+                    is_wide = i.is_wide;
+                    try logger.print("from {s}address {d} (0x{x:0>4})", .{ (if (i.is_wide) "wide " else ""), i.address, i.address });
                 },
                 .immediate => |i| {
                     value = if (i.is_wide) @as(u16, @bitCast(i.data)) // is that LISP (O.O)
                             else           @as(u16, @intCast(@as(u8,  @bitCast(@as(i8, @intCast(i.data))))));
-                    if (optional_logger) |logger| try logger.print("immedate {s}value {d}", .{ (if (i.is_wide) "wide " else ""), i.data });
+                    is_wide = i.is_wide;
+                    try logger.print("immedate {s}value {d}", .{ (if (i.is_wide) "wide " else ""), i.data });
                 },
-                .effective_address => |_| unreachable,
+                .effective_address => |i| {
+                    const address = self.getEffectiveAddress(i);
+                    value = @as(u16, @bitCast([_]u8{self.memory[address],self.memory[address+1]}));
+                    is_wide = true;
+                    try logger.print("from effective address {d} (0x{x:0>4})", .{ address, address });
+                },
             }
-            if (optional_logger) |logger| try logger.print(", value {d} (0x{x:0>4}) ", .{value, value});
+            try logger.print(", {s}value {d} (0x{x:0>4}) ", .{(if (is_wide) "wide" else ""), value, value});
             switch (dst) {
                 .register => |i| {
+                    if (i.register.is8bit()) value = value & 0x00ff;
                     try self.setRegisterValue(i.register, value);
-                    if (optional_logger) |logger| try logger.print("to register {s}", .{@tagName(i.register)});
+                    try logger.print("to register {s}", .{@tagName(i.register)});
                 },
                 .segment_register => |i| {
                     self.setSegmentRegisterValue(i.register, value);
-                    if (optional_logger) |logger| try logger.print("to segment register {s}", .{@tagName(i.register)});
+                    try logger.print("to segment register {s}", .{@tagName(i.register)});
                 },
                 .address => |i| {
                     const data: [2]u8 = @bitCast(value);
-                    if (i.is_wide) mem.copyForwards(u8, self.memory[i.address..], &data)
-                              else self.memory[i.address] = data[0];
-                    if (optional_logger) |logger| try logger.print("to {s}address {d} (0x{x:0>4})", .{ (if (i.is_wide) "wide " else ""), i.address, i.address });
+                    if (is_wide) mem.copyForwards(u8, self.memory[i.address..], &data)
+                            else self.memory[i.address] = data[0];
+                    try logger.print("to {s}address {d} (0x{x:0>4})", .{ (if (i.is_wide) "wide " else ""), i.address, i.address });
                 },
-                .effective_address => |_| unreachable,
-                .immediate         => |_| unreachable,
+                .effective_address => |i| {
+                    const data: [2]u8 = @bitCast(value);
+                    const address = self.getEffectiveAddress(i);
+                    if (is_wide) mem.copyForwards(u8, self.memory[address..], &data)
+                            else self.memory[address] = data[0];
+                    try logger.print("to effective address {d} (0x{x:0>4})", .{ address, address });
+                },
+                .immediate => |_| unreachable,
             }
+        }
+
+        fn getEffectiveAddress(self: @This(), target: EffectiveAddressTarget) u16 {
+            const address: i32 = @as(i32, (switch (target.type) {
+                .bx_si => @as(i32, self.getRegisterValue(.bx)) + @as(i32, self.getRegisterValue(.si)),
+                .bx_di => @as(i32, self.getRegisterValue(.bx)) + @as(i32, self.getRegisterValue(.di)),
+                .bp_si => @as(i32, self.getRegisterValue(.bp)) + @as(i32, self.getRegisterValue(.si)),
+                .bp_di => @as(i32, self.getRegisterValue(.bp)) + @as(i32, self.getRegisterValue(.di)),
+                .si    => self.getRegisterValue(.si),
+                .di    => self.getRegisterValue(.di),
+                .bp    => self.getRegisterValue(.bp),
+                .bx    => self.getRegisterValue(.bx),
+            })) + target.disp_offset;
+            return if (address < 0)                return @as(u16, 0)
+              else if (address > math.maxInt(u16)) return math.maxInt(u16)
+              else                                 return @intCast(address);
         }
     };
 
@@ -1039,10 +1063,17 @@ test "8086.Simulator" {
         .{ .mem = "\x8b\x2e\x64\x00", .reg = .bp, .val = 0x1234, .msg = "mov bp, [100]" },
         .{ .mem = "\x8b\x1e\x00\xf0", .reg = .bx, .val = 0x1234, .msg = "mov bx, [61440]" },
           // setup for next tests
+        .{ .mem = "\xb8\x34\x12", .reg = .ax, .val = 0x1234, .msg = "mov ax, 4660" },
+        .{ .mem = "\xa3\x00\xf0", .reg = .ax, .val = 0x1234, .msg = "mov [61440], ax" }, // 61440 -> 0xf000
+        .{ .mem = "\xbb\xd8\xef", .reg = .bx, .val = 0xefd8, .msg = "mov bx, 61400" },  // bx and si should give 61440 -> 0xf000
+        .{ .mem = "\xbe\x28\x00", .reg = .si, .val = 0x0028, .msg = "mov si, 40" },
+        .{ .mem = "\xbd\xd8\xef", .reg = .bx, .val = 0xefd8, .msg = "mov bp, 61400" },  // bp and di should give 61440 -> 0xf000
+        .{ .mem = "\xbf\x28\x00", .reg = .si, .val = 0x0028, .msg = "mov di, 40" },
+        .{ .mem = "\xa3\xd8\xef", .reg = .ax, .val = 0x1234, .msg = "mov [61400], ax" },
           // Source address calculation
-        //.{ .mem = "\x8a\x00",     .reg = ., .val =, .msg = "mov al, [bx + si]" },
-        //.{ .mem = "\x8b\x1b",     .reg = ., .val =, .msg = "mov bx, [bp + di]" },
-        //.{ .mem = "\x8b\x56\x00", .reg = ., .val =, .msg = "mov dx, [bp]"      },
+        .{ .mem = "\x8a\x00",     .reg = .al, .val = 0x34,   .msg = "mov al, [bx + si]" },
+        .{ .mem = "\x8b\x1b",     .reg = .bx, .val = 0x1234, .msg = "mov bx, [bp + di]" },
+        .{ .mem = "\x8b\x56\x00", .reg = .dx, .val = 0x1234, .msg = "mov dx, [bp]"      },
     };
     var output_buffer: [1024*1024]u8 = undefined;
     var fbs = io.fixedBufferStream(&output_buffer);
@@ -1057,7 +1088,7 @@ test "8086.Simulator" {
         mem.copyForwards(u8, simulator.memory[simulator.ip..], test_case.mem);
         simulator.memory[simulator.ip + test_case.mem.len] = 0xf4; // hlt at the end
         // run and validate
-        try simulator.runWithLogger(logger);
+        try simulator.run(logger);
         try testing.expectEqual(test_case.val, simulator.getRegisterValue(test_case.reg));
     }
 }
