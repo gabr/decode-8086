@@ -744,136 +744,137 @@ test "8086.decode" {
     const TestCase = struct {
         bytes:  []const u8,
         output: []const u8,
+        src: std.builtin.SourceLocation,
     };
     const test_cases = [_]TestCase{
-        .{ .bytes = "\xf4", .output = "hlt" },
-        .{ .bytes = "\x90", .output = "nop" },
+        .{ .src = @src(), .bytes = "\xf4", .output = "hlt" },
+        .{ .src = @src(), .bytes = "\x90", .output = "nop" },
           // basic register to register moves
-        .{ .bytes = "\x89\xd9", .output = "mov cx, bx" },
-        .{ .bytes = "\x88\xe5", .output = "mov ch, ah" },
-        .{ .bytes = "\x89\xda", .output = "mov dx, bx" },
-        .{ .bytes = "\x89\xde", .output = "mov si, bx" },
-        .{ .bytes = "\x89\xfb", .output = "mov bx, di" },
-        .{ .bytes = "\x88\xc8", .output = "mov al, cl" },
-        .{ .bytes = "\x88\xed", .output = "mov ch, ch" },
-        .{ .bytes = "\x89\xc3", .output = "mov bx, ax" },
-        .{ .bytes = "\x89\xf3", .output = "mov bx, si" },
-        .{ .bytes = "\x89\xfc", .output = "mov sp, di" },
-        .{ .bytes = "\x89\xc5", .output = "mov bp, ax" },
-        .{ .bytes = "\x89\xde", .output = "mov si, bx" },
-        .{ .bytes = "\x88\xc6", .output = "mov dh, al" },
+        .{ .src = @src(), .bytes = "\x89\xd9", .output = "mov cx, bx" },
+        .{ .src = @src(), .bytes = "\x88\xe5", .output = "mov ch, ah" },
+        .{ .src = @src(), .bytes = "\x89\xda", .output = "mov dx, bx" },
+        .{ .src = @src(), .bytes = "\x89\xde", .output = "mov si, bx" },
+        .{ .src = @src(), .bytes = "\x89\xfb", .output = "mov bx, di" },
+        .{ .src = @src(), .bytes = "\x88\xc8", .output = "mov al, cl" },
+        .{ .src = @src(), .bytes = "\x88\xed", .output = "mov ch, ch" },
+        .{ .src = @src(), .bytes = "\x89\xc3", .output = "mov bx, ax" },
+        .{ .src = @src(), .bytes = "\x89\xf3", .output = "mov bx, si" },
+        .{ .src = @src(), .bytes = "\x89\xfc", .output = "mov sp, di" },
+        .{ .src = @src(), .bytes = "\x89\xc5", .output = "mov bp, ax" },
+        .{ .src = @src(), .bytes = "\x89\xde", .output = "mov si, bx" },
+        .{ .src = @src(), .bytes = "\x88\xc6", .output = "mov dh, al" },
           // 8-bit immediate-to-register
-        .{ .bytes = "\xb1\x0c", .output = "mov cl, 12" },
-        .{ .bytes = "\xb5\xf4", .output = "mov ch, -12" },
+        .{ .src = @src(), .bytes = "\xb1\x0c", .output = "mov cl, 12" },
+        .{ .src = @src(), .bytes = "\xb5\xf4", .output = "mov ch, -12" },
           // 16-bit immediate-to-register
-        .{ .bytes = "\xb8\x34\x12", .output = "mov ax, 4660" },
-        .{ .bytes = "\xb9\x0c\x00", .output = "mov cx, 12" },
-        .{ .bytes = "\xb9\xf4\xff", .output = "mov cx, -12" },
-        .{ .bytes = "\xba\x6c\x0f", .output = "mov dx, 3948" },
-        .{ .bytes = "\xba\x94\xf0", .output = "mov dx, -3948" },
+        .{ .src = @src(), .bytes = "\xb8\x34\x12", .output = "mov ax, 4660" },
+        .{ .src = @src(), .bytes = "\xb9\x0c\x00", .output = "mov cx, 12" },
+        .{ .src = @src(), .bytes = "\xb9\xf4\xff", .output = "mov cx, -12" },
+        .{ .src = @src(), .bytes = "\xba\x6c\x0f", .output = "mov dx, 3948" },
+        .{ .src = @src(), .bytes = "\xba\x94\xf0", .output = "mov dx, -3948" },
           // Source address calculation
-        .{ .bytes = "\x8a\x00",     .output = "mov al, [bx + si]" },
-        .{ .bytes = "\x8b\x1b",     .output = "mov bx, [bp + di]" },
-        .{ .bytes = "\x8b\x56\x00", .output = "mov dx, [bp]"      },
+        .{ .src = @src(), .bytes = "\x8a\x00",     .output = "mov al, [bx + si]" },
+        .{ .src = @src(), .bytes = "\x8b\x1b",     .output = "mov bx, [bp + di]" },
+        .{ .src = @src(), .bytes = "\x8b\x56\x00", .output = "mov dx, [bp]"      },
           // Source address calculation plus 8-bit displacement
-        .{ .bytes = "\x8a\x60\x04", .output = "mov ah, [bx + si + 4]" },
+        .{ .src = @src(), .bytes = "\x8a\x60\x04", .output = "mov ah, [bx + si + 4]" },
           // Source address calculation plus 16-bit displacement
-        .{ .bytes = "\x8a\x80\x87\x13", .output = "mov al, [bx + si + 4999]" },
+        .{ .src = @src(), .bytes = "\x8a\x80\x87\x13", .output = "mov al, [bx + si + 4999]" },
           // Dest address calculation
-        .{ .bytes = "\x89\x09",     .output = "mov [bx + di], cx" },
-        .{ .bytes = "\x88\x0a",     .output = "mov [bp + si], cl" },
-        .{ .bytes = "\x88\x6e\x00", .output = "mov [bp], ch"      },
+        .{ .src = @src(), .bytes = "\x89\x09",     .output = "mov [bx + di], cx" },
+        .{ .src = @src(), .bytes = "\x88\x0a",     .output = "mov [bp + si], cl" },
+        .{ .src = @src(), .bytes = "\x88\x6e\x00", .output = "mov [bp], ch"      },
           // Signed displacements
-        .{ .bytes = "\x8b\x41\xdb",     .output = "mov ax, [bx + di - 37]" },
-        .{ .bytes = "\x89\x8c\xd4\xfe", .output = "mov [si - 300], cx"     },
-        .{ .bytes = "\x8b\x57\xe0",     .output = "mov dx, [bx - 32]"      },
+        .{ .src = @src(), .bytes = "\x8b\x41\xdb",     .output = "mov ax, [bx + di - 37]" },
+        .{ .src = @src(), .bytes = "\x89\x8c\xd4\xfe", .output = "mov [si - 300], cx"     },
+        .{ .src = @src(), .bytes = "\x8b\x57\xe0",     .output = "mov dx, [bx - 32]"      },
           // Explicit sizes
-        .{ .bytes = "\xc6\x03\x07",             .output = "mov [bp + di], byte 7"    },
-        .{ .bytes = "\xc7\x85\x85\x03\x5b\x01", .output = "mov [di + 901], word 347" },
+        .{ .src = @src(), .bytes = "\xc6\x03\x07",             .output = "mov [bp + di], byte 7"    },
+        .{ .src = @src(), .bytes = "\xc7\x85\x85\x03\x5b\x01", .output = "mov [di + 901], word 347" },
           // Direct address
-        .{ .bytes = "\x8b\x2e\x05\x00", .output = "mov bp, [5]" },
-        .{ .bytes = "\x8b\x1e\x82\x0d", .output = "mov bx, [3458]" },
+        .{ .src = @src(), .bytes = "\x8b\x2e\x05\x00", .output = "mov bp, [5]" },
+        .{ .src = @src(), .bytes = "\x8b\x1e\x82\x0d", .output = "mov bx, [3458]" },
           // Memory-to-accumulator test
-        .{ .bytes = "\xa1\xfb\x09", .output = "mov ax, [2555]" },
-        .{ .bytes = "\xa1\x10\x00", .output = "mov ax, [16]" },
+        .{ .src = @src(), .bytes = "\xa1\xfb\x09", .output = "mov ax, [2555]" },
+        .{ .src = @src(), .bytes = "\xa1\x10\x00", .output = "mov ax, [16]" },
           // Accumulator-to-memory test
-        .{ .bytes = "\xa3\xfa\x09", .output = "mov [2554], ax" },
-        .{ .bytes = "\xa3\x0f\x00", .output = "mov [15], ax" },
+        .{ .src = @src(), .bytes = "\xa3\xfa\x09", .output = "mov [2554], ax" },
+        .{ .src = @src(), .bytes = "\xa3\x0f\x00", .output = "mov [15], ax" },
           // adds
-        .{ .bytes = "\x03\x18", .output = "add bx, [bx + si]" },
-        .{ .bytes = "\x03\x5e\x00", .output = "add bx, [bp]" },    // id     sw  mod type rm
-        .{ .bytes = "\x83\xc6\x02\x00", .output = "add si, 2" },
-        .{ .bytes = "\x83\xc5\x02\x00", .output = "add bp, 2" },
-        .{ .bytes = "\x83\xc1\x08\x00", .output = "add cx, 8" },
-        .{ .bytes = "\x03\x5e\x00", .output = "add bx, [bp]" },
-        .{ .bytes = "\x03\x4f\x02", .output = "add cx, [bx + 2]" },
-        .{ .bytes = "\x02\x7a\x04", .output = "add bh, [bp + si + 4]" },
-        .{ .bytes = "\x03\x7b\x06", .output = "add di, [bp + di + 6]" },
-        .{ .bytes = "\x01\x18", .output = "add [bx + si], bx" },
-        .{ .bytes = "\x01\x5e\x00", .output = "add [bp], bx" },
-        .{ .bytes = "\x01\x5e\x00", .output = "add [bp], bx" },
-        .{ .bytes = "\x01\x4f\x02", .output = "add [bx + 2], cx" },
-        .{ .bytes = "\x00\x7a\x04", .output = "add [bp + si + 4], bh" },
-        .{ .bytes = "\x01\x7b\x06", .output = "add [bp + di + 6], di" },
-        .{ .bytes = "\x80\x07\x22", .output = "add [bx], byte 34" },
-        .{ .bytes = "\x83\x82\xe8\x03\x1d\x00", .output = "add [bp + si + 1000], word 29" },
-        .{ .bytes = "\x03\x46\x00", .output = "add ax, [bp]" },
-        .{ .bytes = "\x02\x00", .output = "add al, [bx + si]" },
-        .{ .bytes = "\x01\xd8", .output = "add ax, bx" },
-        .{ .bytes = "\x00\xe0", .output = "add al, ah" },
-        .{ .bytes = "\x05\xe8\x03", .output = "add ax, 1000" },
-        .{ .bytes = "\x04\xe2", .output = "add al, -30" },
-        .{ .bytes = "\x04\x09", .output = "add al, 9" },
+        .{ .src = @src(), .bytes = "\x03\x18", .output = "add bx, [bx + si]" },
+        .{ .src = @src(), .bytes = "\x03\x5e\x00", .output = "add bx, [bp]" },    // id     sw  mod type rm
+        .{ .src = @src(), .bytes = "\x83\xc6\x02\x00", .output = "add si, 2" },
+        .{ .src = @src(), .bytes = "\x83\xc5\x02\x00", .output = "add bp, 2" },
+        .{ .src = @src(), .bytes = "\x83\xc1\x08\x00", .output = "add cx, 8" },
+        .{ .src = @src(), .bytes = "\x03\x5e\x00", .output = "add bx, [bp]" },
+        .{ .src = @src(), .bytes = "\x03\x4f\x02", .output = "add cx, [bx + 2]" },
+        .{ .src = @src(), .bytes = "\x02\x7a\x04", .output = "add bh, [bp + si + 4]" },
+        .{ .src = @src(), .bytes = "\x03\x7b\x06", .output = "add di, [bp + di + 6]" },
+        .{ .src = @src(), .bytes = "\x01\x18", .output = "add [bx + si], bx" },
+        .{ .src = @src(), .bytes = "\x01\x5e\x00", .output = "add [bp], bx" },
+        .{ .src = @src(), .bytes = "\x01\x5e\x00", .output = "add [bp], bx" },
+        .{ .src = @src(), .bytes = "\x01\x4f\x02", .output = "add [bx + 2], cx" },
+        .{ .src = @src(), .bytes = "\x00\x7a\x04", .output = "add [bp + si + 4], bh" },
+        .{ .src = @src(), .bytes = "\x01\x7b\x06", .output = "add [bp + di + 6], di" },
+        .{ .src = @src(), .bytes = "\x80\x07\x22", .output = "add [bx], byte 34" },
+        .{ .src = @src(), .bytes = "\x83\x82\xe8\x03\x1d\x00", .output = "add [bp + si + 1000], word 29" },
+        .{ .src = @src(), .bytes = "\x03\x46\x00", .output = "add ax, [bp]" },
+        .{ .src = @src(), .bytes = "\x02\x00", .output = "add al, [bx + si]" },
+        .{ .src = @src(), .bytes = "\x01\xd8", .output = "add ax, bx" },
+        .{ .src = @src(), .bytes = "\x00\xe0", .output = "add al, ah" },
+        .{ .src = @src(), .bytes = "\x05\xe8\x03", .output = "add ax, 1000" },
+        .{ .src = @src(), .bytes = "\x04\xe2", .output = "add al, -30" },
+        .{ .src = @src(), .bytes = "\x04\x09", .output = "add al, 9" },
           // subs
-        .{ .bytes = "\x2b\x18", .output = "sub bx, [bx + si]" },
-        .{ .bytes = "\x2b\x5e\x00", .output = "sub bx, [bp]" },
-        .{ .bytes = "\x83\xee\x02\x00", .output = "sub si, 2" },
-        .{ .bytes = "\x83\xed\x02\x00", .output = "sub bp, 2" },
-        .{ .bytes = "\x83\xe9\x08\x00", .output = "sub cx, 8" },
-        .{ .bytes = "\x2b\x5e\x00", .output = "sub bx, [bp]" },
-        .{ .bytes = "\x2b\x4f\x02", .output = "sub cx, [bx + 2]" },
-        .{ .bytes = "\x2a\x7a\x04", .output = "sub bh, [bp + si + 4]" },
-        .{ .bytes = "\x2b\x7b\x06", .output = "sub di, [bp + di + 6]" },
-        .{ .bytes = "\x29\x18", .output = "sub [bx + si], bx" },
-        .{ .bytes = "\x29\x5e\x00", .output = "sub [bp], bx" },
-        .{ .bytes = "\x29\x5e\x00", .output = "sub [bp], bx" },
-        .{ .bytes = "\x29\x4f\x02", .output = "sub [bx + 2], cx" },
-        .{ .bytes = "\x28\x7a\x04", .output = "sub [bp + si + 4], bh" },
-        .{ .bytes = "\x29\x7b\x06", .output = "sub [bp + di + 6], di" },
-        .{ .bytes = "\x80\x2f\x22", .output = "sub [bx], byte 34" },
-        .{ .bytes = "\x83\x29\x1d\x00", .output = "sub [bx + di], word 29" },
-        .{ .bytes = "\x2b\x46\x00", .output = "sub ax, [bp]" },
-        .{ .bytes = "\x2a\x00", .output = "sub al, [bx + si]" },
-        .{ .bytes = "\x29\xd8", .output = "sub ax, bx" },
-        .{ .bytes = "\x28\xe0", .output = "sub al, ah" },
-        .{ .bytes = "\x2d\xe8\x03", .output = "sub ax, 1000" },
-        .{ .bytes = "\x2c\xe2", .output = "sub al, -30" },
-        .{ .bytes = "\x2c\x09", .output = "sub al, 9" },
+        .{ .src = @src(), .bytes = "\x2b\x18", .output = "sub bx, [bx + si]" },
+        .{ .src = @src(), .bytes = "\x2b\x5e\x00", .output = "sub bx, [bp]" },
+        .{ .src = @src(), .bytes = "\x83\xee\x02\x00", .output = "sub si, 2" },
+        .{ .src = @src(), .bytes = "\x83\xed\x02\x00", .output = "sub bp, 2" },
+        .{ .src = @src(), .bytes = "\x83\xe9\x08\x00", .output = "sub cx, 8" },
+        .{ .src = @src(), .bytes = "\x2b\x5e\x00", .output = "sub bx, [bp]" },
+        .{ .src = @src(), .bytes = "\x2b\x4f\x02", .output = "sub cx, [bx + 2]" },
+        .{ .src = @src(), .bytes = "\x2a\x7a\x04", .output = "sub bh, [bp + si + 4]" },
+        .{ .src = @src(), .bytes = "\x2b\x7b\x06", .output = "sub di, [bp + di + 6]" },
+        .{ .src = @src(), .bytes = "\x29\x18", .output = "sub [bx + si], bx" },
+        .{ .src = @src(), .bytes = "\x29\x5e\x00", .output = "sub [bp], bx" },
+        .{ .src = @src(), .bytes = "\x29\x5e\x00", .output = "sub [bp], bx" },
+        .{ .src = @src(), .bytes = "\x29\x4f\x02", .output = "sub [bx + 2], cx" },
+        .{ .src = @src(), .bytes = "\x28\x7a\x04", .output = "sub [bp + si + 4], bh" },
+        .{ .src = @src(), .bytes = "\x29\x7b\x06", .output = "sub [bp + di + 6], di" },
+        .{ .src = @src(), .bytes = "\x80\x2f\x22", .output = "sub [bx], byte 34" },
+        .{ .src = @src(), .bytes = "\x83\x29\x1d\x00", .output = "sub [bx + di], word 29" },
+        .{ .src = @src(), .bytes = "\x2b\x46\x00", .output = "sub ax, [bp]" },
+        .{ .src = @src(), .bytes = "\x2a\x00", .output = "sub al, [bx + si]" },
+        .{ .src = @src(), .bytes = "\x29\xd8", .output = "sub ax, bx" },
+        .{ .src = @src(), .bytes = "\x28\xe0", .output = "sub al, ah" },
+        .{ .src = @src(), .bytes = "\x2d\xe8\x03", .output = "sub ax, 1000" },
+        .{ .src = @src(), .bytes = "\x2c\xe2", .output = "sub al, -30" },
+        .{ .src = @src(), .bytes = "\x2c\x09", .output = "sub al, 9" },
           // cmp
-        .{ .bytes = "\x3b\x18", .output = "cmp bx, [bx + si]" },
-        .{ .bytes = "\x3b\x5e\x00", .output = "cmp bx, [bp]" },
-        .{ .bytes = "\x83\xfe\x02\x00", .output = "cmp si, 2" },
-        .{ .bytes = "\x83\xfd\x02\x00", .output = "cmp bp, 2" },
-        .{ .bytes = "\x83\xf9\x08\x00", .output = "cmp cx, 8" },
-        .{ .bytes = "\x3b\x5e\x00", .output = "cmp bx, [bp]" },
-        .{ .bytes = "\x3b\x4f\x02", .output = "cmp cx, [bx + 2]" },
-        .{ .bytes = "\x3a\x7a\x04", .output = "cmp bh, [bp + si + 4]" },
-        .{ .bytes = "\x3b\x7b\x06", .output = "cmp di, [bp + di + 6]" },
-        .{ .bytes = "\x39\x18", .output = "cmp [bx + si], bx" },
-        .{ .bytes = "\x39\x5e\x00", .output = "cmp [bp], bx" },
-        .{ .bytes = "\x39\x5e\x00", .output = "cmp [bp], bx" },
-        .{ .bytes = "\x39\x4f\x02", .output = "cmp [bx + 2], cx" },
-        .{ .bytes = "\x38\x7a\x04", .output = "cmp [bp + si + 4], bh" },
-        .{ .bytes = "\x39\x7b\x06", .output = "cmp [bp + di + 6], di" },
-        .{ .bytes = "\x80\x3f\x22", .output = "cmp [bx], byte 34" },
-        .{ .bytes = "\x83\x3e\xe2\x12\x1d\x00", .output = "cmp [4834], word 29" },
-        .{ .bytes = "\x3b\x46\x00", .output = "cmp ax, [bp]" },
-        .{ .bytes = "\x3a\x00", .output = "cmp al, [bx + si]" },
-        .{ .bytes = "\x39\xd8", .output = "cmp ax, bx" },
-        .{ .bytes = "\x38\xe0", .output = "cmp al, ah" },
-        .{ .bytes = "\x3d\xe8\x03", .output = "cmp ax, 1000" },
-        .{ .bytes = "\x3c\xe2", .output = "cmp al, -30" },
-        .{ .bytes = "\x3c\x09", .output = "cmp al, 9" },
+        .{ .src = @src(), .bytes = "\x3b\x18", .output = "cmp bx, [bx + si]" },
+        .{ .src = @src(), .bytes = "\x3b\x5e\x00", .output = "cmp bx, [bp]" },
+        .{ .src = @src(), .bytes = "\x83\xfe\x02\x00", .output = "cmp si, 2" },
+        .{ .src = @src(), .bytes = "\x83\xfd\x02\x00", .output = "cmp bp, 2" },
+        .{ .src = @src(), .bytes = "\x83\xf9\x08\x00", .output = "cmp cx, 8" },
+        .{ .src = @src(), .bytes = "\x3b\x5e\x00", .output = "cmp bx, [bp]" },
+        .{ .src = @src(), .bytes = "\x3b\x4f\x02", .output = "cmp cx, [bx + 2]" },
+        .{ .src = @src(), .bytes = "\x3a\x7a\x04", .output = "cmp bh, [bp + si + 4]" },
+        .{ .src = @src(), .bytes = "\x3b\x7b\x06", .output = "cmp di, [bp + di + 6]" },
+        .{ .src = @src(), .bytes = "\x39\x18", .output = "cmp [bx + si], bx" },
+        .{ .src = @src(), .bytes = "\x39\x5e\x00", .output = "cmp [bp], bx" },
+        .{ .src = @src(), .bytes = "\x39\x5e\x00", .output = "cmp [bp], bx" },
+        .{ .src = @src(), .bytes = "\x39\x4f\x02", .output = "cmp [bx + 2], cx" },
+        .{ .src = @src(), .bytes = "\x38\x7a\x04", .output = "cmp [bp + si + 4], bh" },
+        .{ .src = @src(), .bytes = "\x39\x7b\x06", .output = "cmp [bp + di + 6], di" },
+        .{ .src = @src(), .bytes = "\x80\x3f\x22", .output = "cmp [bx], byte 34" },
+        .{ .src = @src(), .bytes = "\x83\x3e\xe2\x12\x1d\x00", .output = "cmp [4834], word 29" },
+        .{ .src = @src(), .bytes = "\x3b\x46\x00", .output = "cmp ax, [bp]" },
+        .{ .src = @src(), .bytes = "\x3a\x00", .output = "cmp al, [bx + si]" },
+        .{ .src = @src(), .bytes = "\x39\xd8", .output = "cmp ax, bx" },
+        .{ .src = @src(), .bytes = "\x38\xe0", .output = "cmp al, ah" },
+        .{ .src = @src(), .bytes = "\x3d\xe8\x03", .output = "cmp ax, 1000" },
+        .{ .src = @src(), .bytes = "\x3c\xe2", .output = "cmp al, -30" },
+        .{ .src = @src(), .bytes = "\x3c\x09", .output = "cmp al, 9" },
     };
 
     var output_buffer: [test_cases.len*32]u8 = undefined;
@@ -911,8 +912,9 @@ test "8086.decode" {
         // compare
         if (mem.eql(u8, test_case.output, output) == false) {
             failed_tests += 1;
-            debug.print("test {d} failed, bytes: {x}, expected ({d}): '{s}', got({d}): '{s}'\n", .{
-                index,
+            debug.print("test {d} (line {d}) failed, bytes: {x}, expected ({d}): '{s}', got({d}): '{s}'\n", .{
+                index+1,
+                test_case.src.line,
                 fmt.fmtSliceHexLower(test_case.bytes),
                 test_case.output.len, test_case.output,
                 output.len, output
@@ -1046,76 +1048,92 @@ test "8086.Simulator" {
         reg: CPU8086.Register, // the tested register
         val: u16,              // expected value after simulation
         msg: []const u8,       // what to print in case of failure
+        src: std.builtin.SourceLocation,
     };
     const test_cases = [_]TestCase{
-        .{ .mem = "\xb1\x0c", .reg = .cl, .val = 0x0c,   .msg = "mov cl, 12" },            // 8-bit immediate-to-register
-        .{ .mem = "\xb5\xf4", .reg = .ch, .val = 0xf4,   .msg = "mov ch, -12" },
-        .{ .mem = "",         .reg = .cx, .val = 0xf40c, .msg = "cx 0xf40c" },
-        .{ .mem = "\xb9\x0c\x00", .reg = .cx, .val = 0x000c, .msg = "mov cx, 12" },        // 16-bit immediate-to-register
-        .{ .mem = "\xb9\xf4\xff", .reg = .cx, .val = 0xfff4, .msg = "mov cx, -12" },
-        .{ .mem = "\xba\x6c\x0f", .reg = .dx, .val = 0x0f6c, .msg = "mov dx, 3948" },
-        .{ .mem = "\xba\x94\xf0", .reg = .dx, .val = 0xf094, .msg = "mov dx, -3948" },
-        .{ .mem = "\xb8\x34\x12", .reg = .ax, .val = 0x1234, .msg = "mov ax, 4660" },      // setup for next tests
-        .{ .mem = "\x88\xc0", .reg = .al, .val = 0x34, .msg = "mov al, al" },              // basic register to register moves
-        .{ .mem = "\x88\xc1", .reg = .cl, .val = 0x34, .msg = "mov cl, al" },
-        .{ .mem = "\x88\xc2", .reg = .dl, .val = 0x34, .msg = "mov dl, al" },
-        .{ .mem = "\x88\xc3", .reg = .bl, .val = 0x34, .msg = "mov bl, al" },
-        .{ .mem = "\x88\xc4", .reg = .ah, .val = 0x34, .msg = "mov ah, al" },
-        .{ .mem = "\x88\xc5", .reg = .ch, .val = 0x34, .msg = "mov ch, al" },
-        .{ .mem = "\x88\xc6", .reg = .dh, .val = 0x34, .msg = "mov dh, al" },
-        .{ .mem = "\x88\xc7", .reg = .bh, .val = 0x34, .msg = "mov bh, al" },
-        .{ .mem = "\xb8\x34\x12", .reg = .ax, .val = 0x1234, .msg = "mov ax, 4660" },      // reset register ax before continuing
-        .{ .mem = "\x89\xc0", .reg = .ax, .val = 0x1234, .msg = "mov ax, ax" },
-        .{ .mem = "\x89\xc1", .reg = .cx, .val = 0x1234, .msg = "mov cx, ax" },
-        .{ .mem = "\x89\xc2", .reg = .dx, .val = 0x1234, .msg = "mov dx, ax" },
-        .{ .mem = "\x89\xc3", .reg = .bx, .val = 0x1234, .msg = "mov bx, ax" },
-        .{ .mem = "\x89\xc4", .reg = .sp, .val = 0x1234, .msg = "mov sp, ax" },
-        .{ .mem = "\x89\xc5", .reg = .bp, .val = 0x1234, .msg = "mov bp, ax" },
-        .{ .mem = "\x89\xc6", .reg = .si, .val = 0x1234, .msg = "mov si, ax" },
-        .{ .mem = "\x89\xc7", .reg = .di, .val = 0x1234, .msg = "mov di, ax" },
-        .{ .mem = "\xb8\x34\x12", .reg = .ax, .val = 0x1234, .msg = "mov ax, 4660" },      // Accumulator-to-memory test
-        .{ .mem = "\xa3\x00\xf0", .reg = .ax, .val = 0x1234, .msg = "mov [61440], ax" },   // 61440 -> 0xf000
-        .{ .mem = "\xb8\x00\x00", .reg = .ax, .val = 0x0000, .msg = "mov ax, 0" },
-        .{ .mem = "\xa1\x00\xf0", .reg = .ax, .val = 0x1234, .msg = "mov ax, [61440]" },
-        .{ .mem = "\xa3\x64\x00", .reg = .ax, .val = 0x1234, .msg = "mov [100], ax" },     // 100   -> 0x64
-        .{ .mem = "\xb8\x00\x00", .reg = .ax, .val = 0x0000, .msg = "mov ax, 0" },
-        .{ .mem = "\xa1\x64\x00", .reg = .ax, .val = 0x1234, .msg = "mov ax, [100]" },
-        .{ .mem = "\x8b\x2e\x64\x00", .reg = .bp, .val = 0x1234, .msg = "mov bp, [100]" }, // Direct address
-        .{ .mem = "\x8b\x1e\x00\xf0", .reg = .bx, .val = 0x1234, .msg = "mov bx, [61440]" },
-        .{ .mem = "\xb8\x34\x12", .reg = .ax, .val = 0x1234, .msg = "mov ax, 4660" },      // setup for next tests
-        .{ .mem = "\xa3\x00\xf0", .reg = .ax, .val = 0x1234, .msg = "mov [61440], ax" },   // 61440 -> 0xf000
-        .{ .mem = "\xbb\xd8\xef", .reg = .bx, .val = 0xefd8, .msg = "mov bx, 61400" },     // bx and si should give 61440 -> 0xf000
-        .{ .mem = "\xbe\x28\x00", .reg = .si, .val = 0x0028, .msg = "mov si, 40" },
-        .{ .mem = "\xbd\xd8\xef", .reg = .bx, .val = 0xefd8, .msg = "mov bp, 61400" },     // bp and di should give 61440 -> 0xf000
-        .{ .mem = "\xbf\x28\x00", .reg = .si, .val = 0x0028, .msg = "mov di, 40" },
-        .{ .mem = "\xa3\xd8\xef", .reg = .ax, .val = 0x1234, .msg = "mov [61400], ax" },
-        .{ .mem = "\x8a\x00",     .reg = .al, .val = 0x12,   .msg = "mov al, [bx + si]" }, // Source address calculation
-        .{ .mem = "\x8b\x1b",     .reg = .bx, .val = 0x1234, .msg = "mov bx, [bp + di]" },
-        .{ .mem = "\x8b\x56\x00", .reg = .dx, .val = 0x1234, .msg = "mov dx, [bp]" },
-        .{ .mem = "\xb8\x34\x12", .reg = .ax, .val = 0x1234, .msg = "mov ax, 4660" },      // test source address calculation plus 8-bit displacement
-        .{ .mem = "\xa3\x08\xf0", .reg = .ax, .val = 0x1234, .msg = "mov [61448], ax" },
-        .{ .mem = "\xbb\xd8\xef", .reg = .bx, .val = 0xefd8, .msg = "mov bx, 61400" },     // bx and si should give 61440 -> 0xf000
-        .{ .mem = "\xbe\x28\x00", .reg = .si, .val = 0x0028, .msg = "mov si, 40" },
-        .{ .mem = "\x8a\x60\x08", .reg = .ah, .val = 0x12,   .msg = "mov ah, [bx + si + 8]" },
-        .{ .mem = "\xbb\xfa\xaf",     .reg = .bx, .val = 0xaffa, .msg = "mov bx, 45050" }, // Source address calculation plus 16-bit displacement
-        .{ .mem = "\xbe\x06\x00",     .reg = .si, .val = 0x0006, .msg = "mov si, 6" },     // bx + si = 45056,  + 16484 = 61440 -> 0xf000
-        .{ .mem = "\x8a\x80\x00\x40", .reg = .al, .val = 0x12,   .msg = "mov al, [bx + si + 16384]" },
-        .{ .mem = "\xbd\xd8\xef", .reg = .bp, .val = 0xefd8, .msg = "mov bp, 61400" },     // Dest address calculation setup
-        .{ .mem = "\xbb\xd8\xef", .reg = .bx, .val = 0xefd8, .msg = "mov bx, 61400" },     // bx and si should give 61440 -> 0xf000
-        .{ .mem = "\xbe\x28\x00", .reg = .si, .val = 0x0028, .msg = "mov si, 40" },
-        .{ .mem = "\xbf\x28\x00", .reg = .di, .val = 0x0028, .msg = "mov di, 40" },
-        .{ .mem = "\xb8\x00\x00", .reg = .ax, .val = 0x0000, .msg = "mov ax, 0" },         // first test
-        .{ .mem = "\xb9\x34\x12", .reg = .cx, .val = 0x1234, .msg = "mov cx, 0x1234" },
-        .{ .mem = "\x89\x09",     .reg = .ax, .val = 0x0000, .msg = "mov [bx + di], cx" },
-        .{ .mem = "\xa1\x00\xf0", .reg = .ax, .val = 0x1234, .msg = "mov ax, [61440]" },
-        .{ .mem = "\xb8\x00\x00", .reg = .ax, .val = 0x0000, .msg = "mov ax, 0" },         // second test
-        .{ .mem = "\xb1\x66",     .reg = .cl, .val = 0x66,   .msg = "mov cl, 0x66" },
-        .{ .mem = "\x88\x0a",     .reg = .ax, .val = 0x0000, .msg = "mov [bp + si], cl" },
-        .{ .mem = "\xa1\x00\xf0", .reg = .ax, .val = 0x6634, .msg = "mov ax, [61440]" },
-        .{ .mem = "\xb8\x00\x00", .reg = .ax, .val = 0x0000, .msg = "mov ax, 0" },         // third test
-        .{ .mem = "\xb5\x77",     .reg = .ch, .val = 0x77,   .msg = "mov ch, 0x77" },
-        .{ .mem = "\x88\x6e\x00", .reg = .ax, .val = 0x0000, .msg = "mov [bp], ch" },
-        .{ .mem = "\xa1\xd8\xef", .reg = .ax, .val = 0x7734, .msg = "mov ax, [61400]" },
+        // 8-bit immediate-to-register
+        .{ .src = @src(), .mem = "\xb1\x0c", .reg = .cl, .val = 0x0c,   .msg = "mov cl, 12" },
+        .{ .src = @src(), .mem = "\xb5\xf4", .reg = .ch, .val = 0xf4,   .msg = "mov ch, -12" },
+        .{ .src = @src(), .mem = "",         .reg = .cx, .val = 0xf40c, .msg = "cx 0xf40c" },
+        // 16-bit immediate-to-register
+        .{ .src = @src(), .mem = "\xb9\x0c\x00", .reg = .cx, .val = 0x000c, .msg = "mov cx, 12" },
+        .{ .src = @src(), .mem = "\xb9\xf4\xff", .reg = .cx, .val = 0xfff4, .msg = "mov cx, -12" },
+        .{ .src = @src(), .mem = "\xba\x6c\x0f", .reg = .dx, .val = 0x0f6c, .msg = "mov dx, 3948" },
+        .{ .src = @src(), .mem = "\xba\x94\xf0", .reg = .dx, .val = 0xf094, .msg = "mov dx, -3948" },
+        // setup for next tests
+        .{ .src = @src(), .mem = "\xb8\x34\x12", .reg = .ax, .val = 0x1234, .msg = "mov ax, 4660" },
+        // basic register to register moves
+        .{ .src = @src(), .mem = "\x88\xc0", .reg = .al, .val = 0x34, .msg = "mov al, al" },
+        .{ .src = @src(), .mem = "\x88\xc1", .reg = .cl, .val = 0x34, .msg = "mov cl, al" },
+        .{ .src = @src(), .mem = "\x88\xc2", .reg = .dl, .val = 0x34, .msg = "mov dl, al" },
+        .{ .src = @src(), .mem = "\x88\xc3", .reg = .bl, .val = 0x34, .msg = "mov bl, al" },
+        .{ .src = @src(), .mem = "\x88\xc4", .reg = .ah, .val = 0x34, .msg = "mov ah, al" },
+        .{ .src = @src(), .mem = "\x88\xc5", .reg = .ch, .val = 0x34, .msg = "mov ch, al" },
+        .{ .src = @src(), .mem = "\x88\xc6", .reg = .dh, .val = 0x34, .msg = "mov dh, al" },
+        .{ .src = @src(), .mem = "\x88\xc7", .reg = .bh, .val = 0x34, .msg = "mov bh, al" },
+        // reset register ax before continuing
+        .{ .src = @src(), .mem = "\xb8\x34\x12", .reg = .ax, .val = 0x1234, .msg = "mov ax, 4660" },
+        .{ .src = @src(), .mem = "\x89\xc0", .reg = .ax, .val = 0x1234, .msg = "mov ax, ax" },
+        .{ .src = @src(), .mem = "\x89\xc1", .reg = .cx, .val = 0x1234, .msg = "mov cx, ax" },
+        .{ .src = @src(), .mem = "\x89\xc2", .reg = .dx, .val = 0x1234, .msg = "mov dx, ax" },
+        .{ .src = @src(), .mem = "\x89\xc3", .reg = .bx, .val = 0x1234, .msg = "mov bx, ax" },
+        .{ .src = @src(), .mem = "\x89\xc4", .reg = .sp, .val = 0x1234, .msg = "mov sp, ax" },
+        .{ .src = @src(), .mem = "\x89\xc5", .reg = .bp, .val = 0x1234, .msg = "mov bp, ax" },
+        .{ .src = @src(), .mem = "\x89\xc6", .reg = .si, .val = 0x1234, .msg = "mov si, ax" },
+        .{ .src = @src(), .mem = "\x89\xc7", .reg = .di, .val = 0x1234, .msg = "mov di, ax" },
+        // Accumulator-to-memory test
+        .{ .src = @src(), .mem = "\xb8\x34\x12", .reg = .ax, .val = 0x1234, .msg = "mov ax, 4660" },
+        .{ .src = @src(), .mem = "\xa3\x00\xf0", .reg = .ax, .val = 0x1234, .msg = "mov [61440], ax" },   // 61440 -> 0xf000
+        .{ .src = @src(), .mem = "\xb8\x00\x00", .reg = .ax, .val = 0x0000, .msg = "mov ax, 0" },
+        .{ .src = @src(), .mem = "\xa1\x00\xf0", .reg = .ax, .val = 0x1234, .msg = "mov ax, [61440]" },
+        .{ .src = @src(), .mem = "\xa3\x64\x00", .reg = .ax, .val = 0x1234, .msg = "mov [100], ax" },     // 100   -> 0x64
+        .{ .src = @src(), .mem = "\xb8\x00\x00", .reg = .ax, .val = 0x0000, .msg = "mov ax, 0" },
+        .{ .src = @src(), .mem = "\xa1\x64\x00", .reg = .ax, .val = 0x1234, .msg = "mov ax, [100]" },
+        // Direct address
+        .{ .src = @src(), .mem = "\x8b\x2e\x64\x00", .reg = .bp, .val = 0x1234, .msg = "mov bp, [100]" },
+        .{ .src = @src(), .mem = "\x8b\x1e\x00\xf0", .reg = .bx, .val = 0x1234, .msg = "mov bx, [61440]" },
+        // setup for next tests
+        .{ .src = @src(), .mem = "\xb8\x34\x12", .reg = .ax, .val = 0x1234, .msg = "mov ax, 4660" },
+        .{ .src = @src(), .mem = "\xa3\x00\xf0", .reg = .ax, .val = 0x1234, .msg = "mov [61440], ax" },   // 61440 -> 0xf000
+        .{ .src = @src(), .mem = "\xbb\xd8\xef", .reg = .bx, .val = 0xefd8, .msg = "mov bx, 61400" },     // bx and si should give 61440 -> 0xf000
+        .{ .src = @src(), .mem = "\xbe\x28\x00", .reg = .si, .val = 0x0028, .msg = "mov si, 40" },
+        .{ .src = @src(), .mem = "\xbd\xd8\xef", .reg = .bx, .val = 0xefd8, .msg = "mov bp, 61400" },     // bp and di should give 61440 -> 0xf000
+        .{ .src = @src(), .mem = "\xbf\x28\x00", .reg = .si, .val = 0x0028, .msg = "mov di, 40" },
+        .{ .src = @src(), .mem = "\xa3\xd8\xef", .reg = .ax, .val = 0x1234, .msg = "mov [61400], ax" },
+        // Source address calculation
+        .{ .src = @src(), .mem = "\x8a\x00",     .reg = .al, .val = 0x12,   .msg = "mov al, [bx + si]" },
+        .{ .src = @src(), .mem = "\x8b\x1b",     .reg = .bx, .val = 0x1234, .msg = "mov bx, [bp + di]" },
+        .{ .src = @src(), .mem = "\x8b\x56\x00", .reg = .dx, .val = 0x1234, .msg = "mov dx, [bp]" },
+        // test source address calculation plus 8-bit displacement
+        .{ .src = @src(), .mem = "\xb8\x34\x12", .reg = .ax, .val = 0x1234, .msg = "mov ax, 4660" },
+        .{ .src = @src(), .mem = "\xa3\x08\xf0", .reg = .ax, .val = 0x1234, .msg = "mov [61448], ax" },
+        .{ .src = @src(), .mem = "\xbb\xd8\xef", .reg = .bx, .val = 0xefd8, .msg = "mov bx, 61400" },     // bx and si should give 61440 -> 0xf000
+        .{ .src = @src(), .mem = "\xbe\x28\x00", .reg = .si, .val = 0x0028, .msg = "mov si, 40" },
+        .{ .src = @src(), .mem = "\x8a\x60\x08", .reg = .ah, .val = 0x12,   .msg = "mov ah, [bx + si + 8]" },
+        // Source address calculation plus 16-bit displacement
+        .{ .src = @src(), .mem = "\xbb\xfa\xaf",     .reg = .bx, .val = 0xaffa, .msg = "mov bx, 45050" },
+        .{ .src = @src(), .mem = "\xbe\x06\x00",     .reg = .si, .val = 0x0006, .msg = "mov si, 6" },     // bx + si = 45056,  + 16484 = 61440 -> 0xf000
+        .{ .src = @src(), .mem = "\x8a\x80\x00\x40", .reg = .al, .val = 0x12,   .msg = "mov al, [bx + si + 16384]" },
+        // Dest address calculation setup
+        .{ .src = @src(), .mem = "\xbd\xd8\xef", .reg = .bp, .val = 0xefd8, .msg = "mov bp, 61400" },
+        .{ .src = @src(), .mem = "\xbb\xd8\xef", .reg = .bx, .val = 0xefd8, .msg = "mov bx, 61400" },     // bx and si should give 61440 -> 0xf000
+        .{ .src = @src(), .mem = "\xbe\x28\x00", .reg = .si, .val = 0x0028, .msg = "mov si, 40" },
+        .{ .src = @src(), .mem = "\xbf\x28\x00", .reg = .di, .val = 0x0028, .msg = "mov di, 40" },
+        // first test
+        .{ .src = @src(), .mem = "\xb8\x00\x00", .reg = .ax, .val = 0x0000, .msg = "mov ax, 0" },
+        .{ .src = @src(), .mem = "\xb9\x34\x12", .reg = .cx, .val = 0x1234, .msg = "mov cx, 0x1234" },
+        .{ .src = @src(), .mem = "\x89\x09",     .reg = .ax, .val = 0x0000, .msg = "mov [bx + di], cx" },
+        .{ .src = @src(), .mem = "\xa1\x00\xf0", .reg = .ax, .val = 0x1234, .msg = "mov ax, [61440]" },
+        // second test
+        .{ .src = @src(), .mem = "\xb8\x00\x00", .reg = .ax, .val = 0x0000, .msg = "mov ax, 0" },
+        .{ .src = @src(), .mem = "\xb1\x66",     .reg = .cl, .val = 0x66,   .msg = "mov cl, 0x66" },
+        .{ .src = @src(), .mem = "\x88\x0a",     .reg = .ax, .val = 0x0000, .msg = "mov [bp + si], cl" },
+        .{ .src = @src(), .mem = "\xa1\x00\xf0", .reg = .ax, .val = 0x6634, .msg = "mov ax, [61440]" },
+        // third test
+        .{ .src = @src(), .mem = "\xb8\x00\x00", .reg = .ax, .val = 0x0000, .msg = "mov ax, 0" },
+        .{ .src = @src(), .mem = "\xb5\x77",     .reg = .ch, .val = 0x77,   .msg = "mov ch, 0x77" },
+        .{ .src = @src(), .mem = "\x88\x6e\x00", .reg = .ax, .val = 0x0000, .msg = "mov [bp], ch" },
+        .{ .src = @src(), .mem = "\xa1\xd8\xef", .reg = .ax, .val = 0x7734, .msg = "mov ax, [61400]" },
     };
     var output_buffer: [1024*1024]u8 = undefined;
     var fbs = io.fixedBufferStream(&output_buffer);
@@ -1124,8 +1142,8 @@ test "8086.Simulator" {
         // reset the buffer at the end of the loop
         defer fbs.reset();
         // print details on failure
-        errdefer debug.print("failed on test case {d}: {s}\n{s}\n",
-            .{index+1, test_case.msg, output_buffer[0..fbs.pos]});
+        errdefer debug.print("failed on test case {d} (line {d}): {s}\n{s}\n",
+            .{index+1, test_case.src.line, test_case.msg, output_buffer[0..fbs.pos]});
         // setup - we do not reset or override memory - only append to it
         mem.copyForwards(u8, simulator.memory[simulator.ip..], test_case.mem);
         simulator.memory[simulator.ip + test_case.mem.len] = 0xf4; // hlt at the end
