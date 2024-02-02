@@ -119,8 +119,7 @@ const CPU8086 = struct {
         address: u16,
 
         pub fn fromFields(w: u1, addr_lo: u8, addr_hi: u8) AddressTarget {
-            return if (w == 0) .{ .is_wide = false, .address = @intCast(addr_lo) }
-                   else        .{ .is_wide = true,  .address = @bitCast([_]u8{addr_lo, addr_hi}) };
+            return .{ .is_wide = w == 1, .address = @bitCast([_]u8{addr_lo, addr_hi}) };
         }
 
         pub fn writeAsm(self: @This(), writer: anytype) !void {
@@ -480,9 +479,12 @@ const CPU8086 = struct {
                     try logger.print("from segment register {s}", .{@tagName(i.register)});
                 },
                 .address => |i| {
-                    value = if (i.is_wide) @as(u16, @bitCast([_]u8{self.memory[i.address+1],self.memory[i.address]}))
+                    is_wide = i.is_wide and switch (dst) {
+                        .register => |d| d.register.is8bit() == false,
+                        else => true,
+                    };
+                    value = if (is_wide) @as(u16, @bitCast([_]u8{self.memory[i.address+1],self.memory[i.address]}))
                             else           @as(u16, @intCast(self.memory[i.address]));
-                    is_wide = i.is_wide;
                     try logger.print("from {s}address {d} (0x{x:0>4})", .{ (if (i.is_wide) "wide " else ""), i.address, i.address });
                 },
                 .immediate => |i| {
@@ -623,10 +625,10 @@ const CPU8086 = struct {
             //debug.print("isPresent({}, mod: {}, w: {})\n", .{ self.type, mod, w });
             return switch(self.type) {
                 .constant, .d, .w, .s, .mod, .reg,
-                .rm, .sr, .data_lo, .addr_lo   => true,
-                .disp_lo                       => (rm == 0b110 and mod == 0b00) or mod == 0b01 or mod == 0b10,
-                .disp_hi                       => (rm == 0b110 and mod == 0b00) or mod == 0b10,
-                .data_hi, .addr_hi             => w == 0b1,
+                .rm, .sr, .data_lo, .addr_lo, .addr_hi   => true,
+                .disp_lo => (rm == 0b110 and mod == 0b00) or mod == 0b01 or mod == 0b10,
+                .disp_hi => (rm == 0b110 and mod == 0b00) or mod == 0b10,
+                .data_hi => w == 0b1,
             };
         }
     };
@@ -795,8 +797,10 @@ test "8086.decode" {
         .{ .src = @src(), .bytes = "\x8b\x2e\x05\x00", .output = "mov bp, [5]" },
         .{ .src = @src(), .bytes = "\x8b\x1e\x82\x0d", .output = "mov bx, [3458]" },
           // Memory-to-accumulator test
-        .{ .src = @src(), .bytes = "\xa1\xfb\x09", .output = "mov ax, [2555]" },
-        .{ .src = @src(), .bytes = "\xa1\x10\x00", .output = "mov ax, [16]" },
+        .{ .src = @src(), .bytes = "\xa1\xfb\x09",     .output = "mov ax, [2555]" },
+        .{ .src = @src(), .bytes = "\xa1\x10\x00",     .output = "mov ax, [16]" },
+        .{ .src = @src(), .bytes = "\xa0\x00\xf0",     .output = "mov al, [61440]" },
+        .{ .src = @src(), .bytes = "\x8a\x26\x00\xf0", .output = "mov ah, [61440]" },
           // Accumulator-to-memory test
         .{ .src = @src(), .bytes = "\xa3\xfa\x09", .output = "mov [2554], ax" },
         .{ .src = @src(), .bytes = "\xa3\x0f\x00", .output = "mov [15], ax" },
@@ -1153,6 +1157,16 @@ test "8086.Simulator" {
         .{ .src = @src(), .mem = "\xa3\x00\xf0", .reg = .ax, .val = 0x1234, .msg = "mov [61440], ax" },
         .{ .src = @src(), .mem = "\xbb\x28\xf0", .reg = .bx, .val = 0xf028, .msg = "mov bx, 61480" },
         .{ .src = @src(), .mem = "\x8b\x57\xd8", .reg = .dx, .val = 0x1234, .msg = "mov dx, [bx - 40]" },
+        // Explicit sizes setup and tests
+        // first test
+        .{ .src = @src(), .mem = "\xbd\xd8\xef", .reg = .bp, .val = 0xefd8, .msg = "mov bp, 61400" },     // bp and di should give 61440 -> 0xf000
+        .{ .src = @src(), .mem = "\xbf\x28\x00", .reg = .di, .val = 0x0028, .msg = "mov di, 40" },
+        .{ .src = @src(), .mem = "\xb0\x00",     .reg = .al, .val = 0x00,   .msg = "mov al, 0" },
+        .{ .src = @src(), .mem = "\xc6\x03\x07", .reg = .al, .val = 0x00,   .msg = "mov [bp + di], byte 7"    },
+        .{ .src = @src(), .mem = "\xa0\x00\xf0", .reg = .al, .val = 0x07,   .msg = "mov al, [61440]" },
+        .{ .src = @src(), .mem = "\x8a\x26\x00\xf0", .reg = .ah, .val = 0x07,   .msg = "mov ah, [61440]" },
+        // second test
+        //.{ .src = @src(), .bytes = "", .output = "mov [di + 901], word 347" },
     };
     var output_buffer: [1024*1024]u8 = undefined;
     var fbs = io.fixedBufferStream(&output_buffer);
