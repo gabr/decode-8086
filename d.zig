@@ -524,8 +524,8 @@ const CPU8086 = struct {
                 .effective_address => |i| {
                     const data: [2]u8 = @bitCast(value);
                     const address = try self.getEffectiveAddress(i, logger);
-                    if (is_wide) mem.copyForwards(u8, self.memory[address..], &data)
-                            else self.memory[address] = data[0];
+                    if (is_wide) { self.memory[address] = data[1];  self.memory[address+1] = data[0]; }
+                            else { self.memory[address] = data[0]; }
                     try logger.print("to effective address {d} (0x{x:0>4})", .{ address, address });
                 },
                 .immediate => |_| unreachable,
@@ -1048,28 +1048,23 @@ test "8086.Simulator" {
         msg: []const u8,       // what to print in case of failure
     };
     const test_cases = [_]TestCase{
-          // 8-bit immediate-to-register
-        .{ .mem = "\xb1\x0c", .reg = .cl, .val = 0x0c,   .msg = "mov cl, 12" },
+        .{ .mem = "\xb1\x0c", .reg = .cl, .val = 0x0c,   .msg = "mov cl, 12" },            // 8-bit immediate-to-register
         .{ .mem = "\xb5\xf4", .reg = .ch, .val = 0xf4,   .msg = "mov ch, -12" },
         .{ .mem = "",         .reg = .cx, .val = 0xf40c, .msg = "cx 0xf40c" },
-          // 16-bit immediate-to-register
-        .{ .mem = "\xb9\x0c\x00", .reg = .cx, .val = 0x000c, .msg = "mov cx, 12" },
+        .{ .mem = "\xb9\x0c\x00", .reg = .cx, .val = 0x000c, .msg = "mov cx, 12" },        // 16-bit immediate-to-register
         .{ .mem = "\xb9\xf4\xff", .reg = .cx, .val = 0xfff4, .msg = "mov cx, -12" },
         .{ .mem = "\xba\x6c\x0f", .reg = .dx, .val = 0x0f6c, .msg = "mov dx, 3948" },
         .{ .mem = "\xba\x94\xf0", .reg = .dx, .val = 0xf094, .msg = "mov dx, -3948" },
-          // setup for next tests
-        .{ .mem = "\xb8\x34\x12", .reg = .ax, .val = 0x1234, .msg = "mov ax, 4660" },
-          // basic register to register moves
-        .{ .mem = "\x88\xc0", .reg = .al, .val = 0x34,   .msg = "mov al, al" },
-        .{ .mem = "\x88\xc1", .reg = .cl, .val = 0x34,   .msg = "mov cl, al" },
-        .{ .mem = "\x88\xc2", .reg = .dl, .val = 0x34,   .msg = "mov dl, al" },
-        .{ .mem = "\x88\xc3", .reg = .bl, .val = 0x34,   .msg = "mov bl, al" },
-        .{ .mem = "\x88\xc4", .reg = .ah, .val = 0x34,   .msg = "mov ah, al" },
-        .{ .mem = "\x88\xc5", .reg = .ch, .val = 0x34,   .msg = "mov ch, al" },
-        .{ .mem = "\x88\xc6", .reg = .dh, .val = 0x34,   .msg = "mov dh, al" },
-        .{ .mem = "\x88\xc7", .reg = .bh, .val = 0x34,   .msg = "mov bh, al" },
-          // reset register ax before continuing with the rest of register moves
-        .{ .mem = "\xb8\x34\x12", .reg = .ax, .val = 0x1234, .msg = "mov ax, 4660" },
+        .{ .mem = "\xb8\x34\x12", .reg = .ax, .val = 0x1234, .msg = "mov ax, 4660" },      // setup for next tests
+        .{ .mem = "\x88\xc0", .reg = .al, .val = 0x34, .msg = "mov al, al" },              // basic register to register moves
+        .{ .mem = "\x88\xc1", .reg = .cl, .val = 0x34, .msg = "mov cl, al" },
+        .{ .mem = "\x88\xc2", .reg = .dl, .val = 0x34, .msg = "mov dl, al" },
+        .{ .mem = "\x88\xc3", .reg = .bl, .val = 0x34, .msg = "mov bl, al" },
+        .{ .mem = "\x88\xc4", .reg = .ah, .val = 0x34, .msg = "mov ah, al" },
+        .{ .mem = "\x88\xc5", .reg = .ch, .val = 0x34, .msg = "mov ch, al" },
+        .{ .mem = "\x88\xc6", .reg = .dh, .val = 0x34, .msg = "mov dh, al" },
+        .{ .mem = "\x88\xc7", .reg = .bh, .val = 0x34, .msg = "mov bh, al" },
+        .{ .mem = "\xb8\x34\x12", .reg = .ax, .val = 0x1234, .msg = "mov ax, 4660" },      // reset register ax before continuing
         .{ .mem = "\x89\xc0", .reg = .ax, .val = 0x1234, .msg = "mov ax, ax" },
         .{ .mem = "\x89\xc1", .reg = .cx, .val = 0x1234, .msg = "mov cx, ax" },
         .{ .mem = "\x89\xc2", .reg = .dx, .val = 0x1234, .msg = "mov dx, ax" },
@@ -1078,30 +1073,49 @@ test "8086.Simulator" {
         .{ .mem = "\x89\xc5", .reg = .bp, .val = 0x1234, .msg = "mov bp, ax" },
         .{ .mem = "\x89\xc6", .reg = .si, .val = 0x1234, .msg = "mov si, ax" },
         .{ .mem = "\x89\xc7", .reg = .di, .val = 0x1234, .msg = "mov di, ax" },
-          // Accumulator-to-memory test
-        .{ .mem = "\xa3\x00\xf0", .reg = .ax, .val = 0x1234, .msg = "mov [61440], ax" }, // 61440 -> 0xf000
-        .{ .mem = "\xa3\x64\x00", .reg = .ax, .val = 0x1234, .msg = "mov [100], ax" },   // 100   -> 0x64
-          // Direct address
-        .{ .mem = "\x8b\x2e\x64\x00", .reg = .bp, .val = 0x1234, .msg = "mov bp, [100]" },
+        .{ .mem = "\xb8\x34\x12", .reg = .ax, .val = 0x1234, .msg = "mov ax, 4660" },      // Accumulator-to-memory test
+        .{ .mem = "\xa3\x00\xf0", .reg = .ax, .val = 0x1234, .msg = "mov [61440], ax" },   // 61440 -> 0xf000
+        .{ .mem = "\xb8\x00\x00", .reg = .ax, .val = 0x0000, .msg = "mov ax, 0" },
+        .{ .mem = "\xa1\x00\xf0", .reg = .ax, .val = 0x1234, .msg = "mov ax, [61440]" },
+        .{ .mem = "\xa3\x64\x00", .reg = .ax, .val = 0x1234, .msg = "mov [100], ax" },     // 100   -> 0x64
+        .{ .mem = "\xb8\x00\x00", .reg = .ax, .val = 0x0000, .msg = "mov ax, 0" },
+        .{ .mem = "\xa1\x64\x00", .reg = .ax, .val = 0x1234, .msg = "mov ax, [100]" },
+        .{ .mem = "\x8b\x2e\x64\x00", .reg = .bp, .val = 0x1234, .msg = "mov bp, [100]" }, // Direct address
         .{ .mem = "\x8b\x1e\x00\xf0", .reg = .bx, .val = 0x1234, .msg = "mov bx, [61440]" },
-          // setup for next tests
-        .{ .mem = "\xb8\x34\x12", .reg = .ax, .val = 0x1234, .msg = "mov ax, 4660" },
-        .{ .mem = "\xa3\x00\xf0", .reg = .ax, .val = 0x1234, .msg = "mov [61440], ax" }, // 61440 -> 0xf000
-        .{ .mem = "\xbb\xd8\xef", .reg = .bx, .val = 0xefd8, .msg = "mov bx, 61400" },  // bx and si should give 61440 -> 0xf000
+        .{ .mem = "\xb8\x34\x12", .reg = .ax, .val = 0x1234, .msg = "mov ax, 4660" },      // setup for next tests
+        .{ .mem = "\xa3\x00\xf0", .reg = .ax, .val = 0x1234, .msg = "mov [61440], ax" },   // 61440 -> 0xf000
+        .{ .mem = "\xbb\xd8\xef", .reg = .bx, .val = 0xefd8, .msg = "mov bx, 61400" },     // bx and si should give 61440 -> 0xf000
         .{ .mem = "\xbe\x28\x00", .reg = .si, .val = 0x0028, .msg = "mov si, 40" },
-        .{ .mem = "\xbd\xd8\xef", .reg = .bx, .val = 0xefd8, .msg = "mov bp, 61400" },  // bp and di should give 61440 -> 0xf000
+        .{ .mem = "\xbd\xd8\xef", .reg = .bx, .val = 0xefd8, .msg = "mov bp, 61400" },     // bp and di should give 61440 -> 0xf000
         .{ .mem = "\xbf\x28\x00", .reg = .si, .val = 0x0028, .msg = "mov di, 40" },
         .{ .mem = "\xa3\xd8\xef", .reg = .ax, .val = 0x1234, .msg = "mov [61400], ax" },
-          // Source address calculation
-        .{ .mem = "\x8a\x00",     .reg = .al, .val = 0x12,   .msg = "mov al, [bx + si]" },
+        .{ .mem = "\x8a\x00",     .reg = .al, .val = 0x12,   .msg = "mov al, [bx + si]" }, // Source address calculation
         .{ .mem = "\x8b\x1b",     .reg = .bx, .val = 0x1234, .msg = "mov bx, [bp + di]" },
-        .{ .mem = "\x8b\x56\x00", .reg = .dx, .val = 0x1234, .msg = "mov dx, [bp]"      },
-          // reset bx to have correct address
-        .{ .mem = "\xbb\xd8\xef", .reg = .bx, .val = 0xefd8, .msg = "mov bx, 61400" },  // bx and si should give 61440 -> 0xf000
-        .{ .mem = "\xbe\x28\x00", .reg = .si, .val = 0x0028, .msg = "mov si, 40" },
-        .{ .mem = "\xb8\x34\x12", .reg = .ax, .val = 0x1234, .msg = "mov ax, 4660" },
+        .{ .mem = "\x8b\x56\x00", .reg = .dx, .val = 0x1234, .msg = "mov dx, [bp]" },
+        .{ .mem = "\xb8\x34\x12", .reg = .ax, .val = 0x1234, .msg = "mov ax, 4660" },      // test source address calculation plus 8-bit displacement
         .{ .mem = "\xa3\x08\xf0", .reg = .ax, .val = 0x1234, .msg = "mov [61448], ax" },
+        .{ .mem = "\xbb\xd8\xef", .reg = .bx, .val = 0xefd8, .msg = "mov bx, 61400" },     // bx and si should give 61440 -> 0xf000
+        .{ .mem = "\xbe\x28\x00", .reg = .si, .val = 0x0028, .msg = "mov si, 40" },
         .{ .mem = "\x8a\x60\x08", .reg = .ah, .val = 0x12,   .msg = "mov ah, [bx + si + 8]" },
+        .{ .mem = "\xbb\xfa\xaf",     .reg = .bx, .val = 0xaffa, .msg = "mov bx, 45050" }, // Source address calculation plus 16-bit displacement
+        .{ .mem = "\xbe\x06\x00",     .reg = .si, .val = 0x0006, .msg = "mov si, 6" },     // bx + si = 45056,  + 16484 = 61440 -> 0xf000
+        .{ .mem = "\x8a\x80\x00\x40", .reg = .al, .val = 0x12,   .msg = "mov al, [bx + si + 16384]" },
+        .{ .mem = "\xbd\xd8\xef", .reg = .bp, .val = 0xefd8, .msg = "mov bp, 61400" },     // Dest address calculation setup
+        .{ .mem = "\xbb\xd8\xef", .reg = .bx, .val = 0xefd8, .msg = "mov bx, 61400" },     // bx and si should give 61440 -> 0xf000
+        .{ .mem = "\xbe\x28\x00", .reg = .si, .val = 0x0028, .msg = "mov si, 40" },
+        .{ .mem = "\xbf\x28\x00", .reg = .di, .val = 0x0028, .msg = "mov di, 40" },
+        .{ .mem = "\xb8\x00\x00", .reg = .ax, .val = 0x0000, .msg = "mov ax, 0" },         // first test
+        .{ .mem = "\xb9\x34\x12", .reg = .cx, .val = 0x1234, .msg = "mov cx, 0x1234" },
+        .{ .mem = "\x89\x09",     .reg = .ax, .val = 0x0000, .msg = "mov [bx + di], cx" },
+        .{ .mem = "\xa1\x00\xf0", .reg = .ax, .val = 0x1234, .msg = "mov ax, [61440]" },
+        .{ .mem = "\xb8\x00\x00", .reg = .ax, .val = 0x0000, .msg = "mov ax, 0" },         // second test
+        .{ .mem = "\xb1\x66",     .reg = .cl, .val = 0x66,   .msg = "mov cl, 0x66" },
+        .{ .mem = "\x88\x0a",     .reg = .ax, .val = 0x0000, .msg = "mov [bp + si], cl" },
+        .{ .mem = "\xa1\x00\xf0", .reg = .ax, .val = 0x6634, .msg = "mov ax, [61440]" },
+        .{ .mem = "\xb8\x00\x00", .reg = .ax, .val = 0x0000, .msg = "mov ax, 0" },         // third test
+        .{ .mem = "\xb5\x77",     .reg = .ch, .val = 0x77,   .msg = "mov ch, 0x77" },
+        .{ .mem = "\x88\x6e\x00", .reg = .ax, .val = 0x0000, .msg = "mov [bp], ch" },
+        .{ .mem = "\xa1\xd8\xef", .reg = .ax, .val = 0x7734, .msg = "mov ax, [61400]" },
     };
     var output_buffer: [1024*1024]u8 = undefined;
     var fbs = io.fixedBufferStream(&output_buffer);
@@ -1111,7 +1125,7 @@ test "8086.Simulator" {
         defer fbs.reset();
         // print details on failure
         errdefer debug.print("failed on test case {d}: {s}\n{s}\n",
-            .{index, test_case.msg, output_buffer[0..fbs.pos]});
+            .{index+1, test_case.msg, output_buffer[0..fbs.pos]});
         // setup - we do not reset or override memory - only append to it
         mem.copyForwards(u8, simulator.memory[simulator.ip..], test_case.mem);
         simulator.memory[simulator.ip + test_case.mem.len] = 0xf4; // hlt at the end
