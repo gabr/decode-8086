@@ -1087,10 +1087,10 @@ test "8086.Simulator" {
         .{ .src = @src(), .mem = "\x89\xc7", .reg = .di, .val = 0x1234, .msg = "mov di, ax" },
         // Accumulator-to-memory test
         .{ .src = @src(), .mem = "\xb8\x34\x12", .reg = .ax, .val = 0x1234, .msg = "mov ax, 4660" },
-        .{ .src = @src(), .mem = "\xa3\x00\xf0", .reg = .ax, .val = 0x1234, .msg = "mov [61440], ax" },   // 61440 -> 0xf000
+        .{ .src = @src(), .mem = "\xa3\x00\xf0", .reg = .ax, .val = 0x1234, .msg = "mov [61440], ax" },
         .{ .src = @src(), .mem = "\xb8\x00\x00", .reg = .ax, .val = 0x0000, .msg = "mov ax, 0" },
         .{ .src = @src(), .mem = "\xa1\x00\xf0", .reg = .ax, .val = 0x1234, .msg = "mov ax, [61440]" },
-        .{ .src = @src(), .mem = "\xa3\x64\x00", .reg = .ax, .val = 0x1234, .msg = "mov [100], ax" },     // 100   -> 0x64
+        .{ .src = @src(), .mem = "\xa3\x64\x00", .reg = .ax, .val = 0x1234, .msg = "mov [100], ax" },
         .{ .src = @src(), .mem = "\xb8\x00\x00", .reg = .ax, .val = 0x0000, .msg = "mov ax, 0" },
         .{ .src = @src(), .mem = "\xa1\x64\x00", .reg = .ax, .val = 0x1234, .msg = "mov ax, [100]" },
         // Direct address
@@ -1098,10 +1098,10 @@ test "8086.Simulator" {
         .{ .src = @src(), .mem = "\x8b\x1e\x00\xf0", .reg = .bx, .val = 0x1234, .msg = "mov bx, [61440]" },
         // setup for next tests
         .{ .src = @src(), .mem = "\xb8\x34\x12", .reg = .ax, .val = 0x1234, .msg = "mov ax, 4660" },
-        .{ .src = @src(), .mem = "\xa3\x00\xf0", .reg = .ax, .val = 0x1234, .msg = "mov [61440], ax" },   // 61440 -> 0xf000
-        .{ .src = @src(), .mem = "\xbb\xd8\xef", .reg = .bx, .val = 0xefd8, .msg = "mov bx, 61400" },     // bx and si should give 61440 -> 0xf000
+        .{ .src = @src(), .mem = "\xa3\x00\xf0", .reg = .ax, .val = 0x1234, .msg = "mov [61440], ax" },
+        .{ .src = @src(), .mem = "\xbb\xd8\xef", .reg = .bx, .val = 0xefd8, .msg = "mov bx, 61400" },
         .{ .src = @src(), .mem = "\xbe\x28\x00", .reg = .si, .val = 0x0028, .msg = "mov si, 40" },
-        .{ .src = @src(), .mem = "\xbd\xd8\xef", .reg = .bx, .val = 0xefd8, .msg = "mov bp, 61400" },     // bp and di should give 61440 -> 0xf000
+        .{ .src = @src(), .mem = "\xbd\xd8\xef", .reg = .bx, .val = 0xefd8, .msg = "mov bp, 61400" },
         .{ .src = @src(), .mem = "\xbf\x28\x00", .reg = .si, .val = 0x0028, .msg = "mov di, 40" },
         .{ .src = @src(), .mem = "\xa3\xd8\xef", .reg = .ax, .val = 0x1234, .msg = "mov [61400], ax" },
         // Source address calculation
@@ -1111,16 +1111,16 @@ test "8086.Simulator" {
         // test source address calculation plus 8-bit displacement
         .{ .src = @src(), .mem = "\xb8\x34\x12", .reg = .ax, .val = 0x1234, .msg = "mov ax, 4660" },
         .{ .src = @src(), .mem = "\xa3\x08\xf0", .reg = .ax, .val = 0x1234, .msg = "mov [61448], ax" },
-        .{ .src = @src(), .mem = "\xbb\xd8\xef", .reg = .bx, .val = 0xefd8, .msg = "mov bx, 61400" },     // bx and si should give 61440 -> 0xf000
+        .{ .src = @src(), .mem = "\xbb\xd8\xef", .reg = .bx, .val = 0xefd8, .msg = "mov bx, 61400" },
         .{ .src = @src(), .mem = "\xbe\x28\x00", .reg = .si, .val = 0x0028, .msg = "mov si, 40" },
         .{ .src = @src(), .mem = "\x8a\x60\x08", .reg = .ah, .val = 0x12,   .msg = "mov ah, [bx + si + 8]" },
         // Source address calculation plus 16-bit displacement
         .{ .src = @src(), .mem = "\xbb\xfa\xaf",     .reg = .bx, .val = 0xaffa, .msg = "mov bx, 45050" },
-        .{ .src = @src(), .mem = "\xbe\x06\x00",     .reg = .si, .val = 0x0006, .msg = "mov si, 6" },     // bx + si = 45056,  + 16484 = 61440 -> 0xf000
+        .{ .src = @src(), .mem = "\xbe\x06\x00",     .reg = .si, .val = 0x0006, .msg = "mov si, 6" },
         .{ .src = @src(), .mem = "\x8a\x80\x00\x40", .reg = .al, .val = 0x12,   .msg = "mov al, [bx + si + 16384]" },
         // Dest address calculation setup and tests
         .{ .src = @src(), .mem = "\xbd\xd8\xef", .reg = .bp, .val = 0xefd8, .msg = "mov bp, 61400" },
-        .{ .src = @src(), .mem = "\xbb\xd8\xef", .reg = .bx, .val = 0xefd8, .msg = "mov bx, 61400" },     // bx and si should give 61440 -> 0xf000
+        .{ .src = @src(), .mem = "\xbb\xd8\xef", .reg = .bx, .val = 0xefd8, .msg = "mov bx, 61400" },
         .{ .src = @src(), .mem = "\xbe\x28\x00", .reg = .si, .val = 0x0028, .msg = "mov si, 40" },
         .{ .src = @src(), .mem = "\xbf\x28\x00", .reg = .di, .val = 0x0028, .msg = "mov di, 40" },
         // first test
@@ -1159,14 +1159,25 @@ test "8086.Simulator" {
         .{ .src = @src(), .mem = "\x8b\x57\xd8", .reg = .dx, .val = 0x1234, .msg = "mov dx, [bx - 40]" },
         // Explicit sizes setup and tests
         // first test
-        .{ .src = @src(), .mem = "\xbd\xd8\xef", .reg = .bp, .val = 0xefd8, .msg = "mov bp, 61400" },     // bp and di should give 61440 -> 0xf000
-        .{ .src = @src(), .mem = "\xbf\x28\x00", .reg = .di, .val = 0x0028, .msg = "mov di, 40" },
-        .{ .src = @src(), .mem = "\xb0\x00",     .reg = .al, .val = 0x00,   .msg = "mov al, 0" },
-        .{ .src = @src(), .mem = "\xc6\x03\x07", .reg = .al, .val = 0x00,   .msg = "mov [bp + di], byte 7"    },
-        .{ .src = @src(), .mem = "\xa0\x00\xf0", .reg = .al, .val = 0x07,   .msg = "mov al, [61440]" },
+        .{ .src = @src(), .mem = "\xbd\xd8\xef",     .reg = .bp, .val = 0xefd8, .msg = "mov bp, 61400" },
+        .{ .src = @src(), .mem = "\xbf\x28\x00",     .reg = .di, .val = 0x0028, .msg = "mov di, 40" },
+        .{ .src = @src(), .mem = "\xb0\x00",         .reg = .al, .val = 0x00,   .msg = "mov al, 0" },
+        .{ .src = @src(), .mem = "\xc6\x03\x07",     .reg = .al, .val = 0x00,   .msg = "mov [bp + di], byte 7" },
+        .{ .src = @src(), .mem = "\xa0\x00\xf0",     .reg = .al, .val = 0x07,   .msg = "mov al, [61440]" },
         .{ .src = @src(), .mem = "\x8a\x26\x00\xf0", .reg = .ah, .val = 0x07,   .msg = "mov ah, [61440]" },
         // second test
-        //.{ .src = @src(), .bytes = "", .output = "mov [di + 901], word 347" },
+        .{ .src = @src(), .mem = "\xbf\xd8\xef",         .reg = .di, .val = 0xefd8, .msg = "mov di, 61400" },
+        .{ .src = @src(), .mem = "\xb8\x00\x00",         .reg = .ax, .val = 0x0000, .msg = "mov ax, 0" },
+        .{ .src = @src(), .mem = "\xc7\x45\x28\x34\x12", .reg = .ax, .val = 0x0000, .msg = "mov [di + 40], word 4660" },
+        .{ .src = @src(), .mem = "\xa1\x00\xf0",         .reg = .ax, .val = 0x1234, .msg = "mov ax, [61440]" },
+        // Accumulator-to-memory test
+        .{ .src = @src(), .mem = "\xb8\x34\x12",     .reg = .ax, .val = 0x1234, .msg = "mov ax, 4660" },
+        .{ .src = @src(), .mem = "\xa3\xfa\x09",     .reg = .ax, .val = 0x1234, .msg = "mov [2554], ax" },
+        .{ .src = @src(), .mem = "\xbb\x00\x00",     .reg = .bx, .val = 0x0000, .msg = "mov bx, 0" },
+        .{ .src = @src(), .mem = "\x8b\x1e\xfa\x09", .reg = .bx, .val = 0x1234, .msg = "mov bx, [2554]" },
+        .{ .src = @src(), .mem = "\xa3\x0f\x00",     .reg = .ax, .val = 0x1234, .msg = "mov [15], ax" },
+        .{ .src = @src(), .mem = "\xbb\x00\x00",     .reg = .bx, .val = 0x0000, .msg = "mov bx, 0" },
+        .{ .src = @src(), .mem = "\x8b\x1e\x0f\x00", .reg = .bx, .val = 0x1234, .msg = "mov bx, [15]" },
     };
     var output_buffer: [1024*1024]u8 = undefined;
     var fbs = io.fixedBufferStream(&output_buffer);
