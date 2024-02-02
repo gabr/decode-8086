@@ -1114,7 +1114,7 @@ test "8086.Simulator" {
         .{ .src = @src(), .mem = "\xbb\xfa\xaf",     .reg = .bx, .val = 0xaffa, .msg = "mov bx, 45050" },
         .{ .src = @src(), .mem = "\xbe\x06\x00",     .reg = .si, .val = 0x0006, .msg = "mov si, 6" },     // bx + si = 45056,  + 16484 = 61440 -> 0xf000
         .{ .src = @src(), .mem = "\x8a\x80\x00\x40", .reg = .al, .val = 0x12,   .msg = "mov al, [bx + si + 16384]" },
-        // Dest address calculation setup
+        // Dest address calculation setup and tests
         .{ .src = @src(), .mem = "\xbd\xd8\xef", .reg = .bp, .val = 0xefd8, .msg = "mov bp, 61400" },
         .{ .src = @src(), .mem = "\xbb\xd8\xef", .reg = .bx, .val = 0xefd8, .msg = "mov bx, 61400" },     // bx and si should give 61440 -> 0xf000
         .{ .src = @src(), .mem = "\xbe\x28\x00", .reg = .si, .val = 0x0028, .msg = "mov si, 40" },
@@ -1134,6 +1134,22 @@ test "8086.Simulator" {
         .{ .src = @src(), .mem = "\xb5\x77",     .reg = .ch, .val = 0x77,   .msg = "mov ch, 0x77" },
         .{ .src = @src(), .mem = "\x88\x6e\x00", .reg = .ax, .val = 0x0000, .msg = "mov [bp], ch" },
         .{ .src = @src(), .mem = "\xa1\xd8\xef", .reg = .ax, .val = 0x7734, .msg = "mov ax, [61400]" },
+        // Signed displacements setup and tests
+        // first test
+        .{ .src = @src(), .mem = "\xb8\x34\x12", .reg = .ax, .val = 0x1234, .msg = "mov ax, 4660" },
+        .{ .src = @src(), .mem = "\xa3\x00\xf0", .reg = .ax, .val = 0x1234, .msg = "mov [61440], ax" },
+        .{ .src = @src(), .mem = "\xb8\x00\x00", .reg = .ax, .val = 0x0000, .msg = "mov ax, 0" },
+        .{ .src = @src(), .mem = "\xbb\xd8\xef", .reg = .bx, .val = 0xefd8, .msg = "mov bx, 61400" },
+        .{ .src = @src(), .mem = "\xbf\x50\x00", .reg = .di, .val = 0x0050, .msg = "mov di, 80" },
+        .{ .src = @src(), .mem = "\x8b\x41\xd8", .reg = .ax, .val = 0x1234, .msg = "mov ax, [bx + di - 40]" },
+        // second test
+        .{ .src = @src(), .mem = "\xb9\x34\x12",     .reg = .cx, .val = 0x1234, .msg = "mov cx, 4660" },
+        .{ .src = @src(), .mem = "\xbe\x28\xf0",     .reg = .si, .val = 0xf028, .msg = "mov si, 61480" },
+        .{ .src = @src(), .mem = "\x89\x4c\xd8",     .reg = .cx, .val = 0x1234, .msg = "mov [si - 40], cx" },
+        .{ .src = @src(), .mem = "\xb9\x00\x00",     .reg = .cx, .val = 0x0000, .msg = "mov cx, 0" },
+        .{ .src = @src(), .mem = "\x8b\x0e\x00\xf0", .reg = .cx, .val = 0x1234, .msg = "mov cx, [61440]" },
+        // third test
+        //.{ .src = @src(), .mem = "",     .reg = .ax, .val = 0x0000, .msg = "mov dx, [bx - 32]" },
     };
     var output_buffer: [1024*1024]u8 = undefined;
     var fbs = io.fixedBufferStream(&output_buffer);
