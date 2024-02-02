@@ -1149,7 +1149,10 @@ test "8086.Simulator" {
         .{ .src = @src(), .mem = "\xb9\x00\x00",     .reg = .cx, .val = 0x0000, .msg = "mov cx, 0" },
         .{ .src = @src(), .mem = "\x8b\x0e\x00\xf0", .reg = .cx, .val = 0x1234, .msg = "mov cx, [61440]" },
         // third test
-        //.{ .src = @src(), .mem = "",     .reg = .ax, .val = 0x0000, .msg = "mov dx, [bx - 32]" },
+        .{ .src = @src(), .mem = "\xb8\x34\x12", .reg = .ax, .val = 0x1234, .msg = "mov ax, 4660" },
+        .{ .src = @src(), .mem = "\xa3\x00\xf0", .reg = .ax, .val = 0x1234, .msg = "mov [61440], ax" },
+        .{ .src = @src(), .mem = "\xbb\x28\xf0", .reg = .bx, .val = 0xf028, .msg = "mov bx, 61480" },
+        .{ .src = @src(), .mem = "\x8b\x57\xd8", .reg = .dx, .val = 0x1234, .msg = "mov dx, [bx - 40]" },
     };
     var output_buffer: [1024*1024]u8 = undefined;
     var fbs = io.fixedBufferStream(&output_buffer);
