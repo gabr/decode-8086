@@ -447,10 +447,11 @@ const CPU8086 = struct {
                 var memory_steram = io.fixedBufferStream(self.memory[self.ip..]);
                 if (try decode(memory_steram.reader())) |instruction| {
                     try CPU8086.writeAsm(instruction, logger);
+                    _ = try logger.write("  ; ");
                     switch (instruction.type) {
                         .nop => {}, // do nothing
                         .mov => try self.mov(instruction.dst, instruction.src, logger),
-                        //.add => ,
+                        .add => try self.add(instruction.dst, instruction.src, logger),
                         //.sub => ,
                         //.cmp => ,
                         .hlt => break,
@@ -463,38 +464,54 @@ const CPU8086 = struct {
             _ = try logger.write("\nsimulation end\n");
         }
 
+
+        fn add(self: *@This(), dst: InstructionTarget, src: InstructionTarget, logger: anytype) !void {
+            const src_value = try self.getSrcValue(dst, src, logger);
+            var dst_value = try self.getSrcValue(dst, dst, logger);
+            dst_value.val += src_value.val;
+            try self.setDstValue(dst, dst_value, logger);
+        }
+
         fn mov(self: *@This(), dst: InstructionTarget, src: InstructionTarget, logger: anytype) !void {
+            const src_value = try self.getSrcValue(dst, src, logger);
+            try self.setDstValue(dst, src_value, logger);
+        }
+
+        const Value = struct { val: u16, wide: bool, };
+        fn getSrcValue(self: @This(), dst: InstructionTarget, src: InstructionTarget, logger: anytype) !Value {
             _ = try logger.write("  ; ");
-            var value:   u16  = undefined;
-            var is_wide: bool = undefined;
+            var v = Value {
+                .val  = undefined,
+                .wide = undefined,
+            };
             switch (src) {
                 .register => |i| {
-                    value = self.getRegisterValue(i.register);
-                    is_wide = i.register.is8bit() == false;
+                    v.val  = self.getRegisterValue(i.register);
+                    v.wide = i.register.is8bit() == false;
                     try logger.print("from register {s}", .{@tagName(i.register)});
                 },
                 .segment_register => |i| {
-                    value = self.getSegmentRegisterValue(i.register);
-                    is_wide = true;
+                    v.val  = self.getSegmentRegisterValue(i.register);
+                    v.wide = true;
                     try logger.print("from segment register {s}", .{@tagName(i.register)});
                 },
                 .address => |i| {
-                    is_wide = i.is_wide and switch (dst) {
+                    v.wide = i.is_wide and switch (dst) {
                         .register => |d| d.register.is8bit() == false,
                         else => true,
                     };
-                    value = if (is_wide) @as(u16, @bitCast([_]u8{self.memory[i.address+1],self.memory[i.address]}))
-                            else           @as(u16, @intCast(self.memory[i.address]));
+                    v.val = if (v.wide) @as(u16, @bitCast([_]u8{self.memory[i.address+1],self.memory[i.address]}))
+                            else        @as(u16, @intCast(self.memory[i.address]));
                     try logger.print("from {s}address {d} (0x{x:0>4})", .{ (if (i.is_wide) "wide " else ""), i.address, i.address });
                 },
                 .immediate => |i| {
-                    value = if (i.is_wide) @as(u16, @bitCast(i.data)) // is that LISP (O.O)
+                    v.val = if (i.is_wide) @as(u16, @bitCast(i.data)) // is that LISP (O.O)
                             else           @as(u16, @intCast(@as(u8,  @bitCast(@as(i8, @intCast(i.data))))));
-                    is_wide = i.is_wide;
+                    v.wide = i.is_wide;
                     try logger.print("immedate {s}value {d}", .{ (if (i.is_wide) "wide " else ""), i.data });
                 },
                 .effective_address => |i| {
-                    is_wide = switch (dst) {
+                    v.wide = switch (dst) {
                         .register          => |d| d.register.is8bit() == false,
                         .segment_register  => |_| true,
                         .address           => |d| d.is_wide,
@@ -502,32 +519,36 @@ const CPU8086 = struct {
                         .immediate         => |_| unreachable,
                     };
                     const address = try self.getEffectiveAddress(i, logger);
-                    value = if (is_wide) @as(u16, @bitCast([_]u8{self.memory[address+1],self.memory[address]}))
-                            else         @as(u16, @intCast(self.memory[address]));
+                    v.val = if (v.wide) @as(u16, @bitCast([_]u8{self.memory[address+1],self.memory[address]}))
+                            else        @as(u16, @intCast(self.memory[address]));
                     try logger.print("from effective address {d} (0x{x:0>4})", .{ address, address });
                 },
             }
-            try logger.print(", {s}value {d} (0x{x:0>4}) ", .{(if (is_wide) "wide " else ""), value, value});
+            try logger.print(", {s}value {d} (0x{x:0>4}) ", .{(if (v.wide) "wide " else ""), v.val, v.val});
+            return v;
+        }
+
+        fn setDstValue(self: *@This(), dst: InstructionTarget, value: Value, logger: anytype) !void {
             switch (dst) {
                 .register => |i| {
-                    try self.setRegisterValue(i.register, value);
+                    try self.setRegisterValue(i.register, value.val);
                     try logger.print("to register {s}", .{@tagName(i.register)});
                 },
                 .segment_register => |i| {
-                    self.setSegmentRegisterValue(i.register, value);
+                    self.setSegmentRegisterValue(i.register, value.val);
                     try logger.print("to segment register {s}", .{@tagName(i.register)});
                 },
                 .address => |i| {
-                    const data: [2]u8 = @bitCast(value);
-                    if (is_wide) { self.memory[i.address] = data[1];  self.memory[i.address+1] = data[0]; }
-                            else { self.memory[i.address] = data[0]; }
+                    const data: [2]u8 = @bitCast(value.val);
+                    if (value.wide) { self.memory[i.address] = data[1];  self.memory[i.address+1] = data[0]; }
+                    else            { self.memory[i.address] = data[0]; }
                     try logger.print("to {s}address {d} (0x{x:0>4})", .{ (if (i.is_wide) "wide " else ""), i.address, i.address });
                 },
                 .effective_address => |i| {
-                    const data: [2]u8 = @bitCast(value);
+                    const data: [2]u8 = @bitCast(value.val);
                     const address = try self.getEffectiveAddress(i, logger);
-                    if (is_wide) { self.memory[address] = data[1];  self.memory[address+1] = data[0]; }
-                            else { self.memory[address] = data[0]; }
+                    if (value.wide) { self.memory[address] = data[1];  self.memory[address+1] = data[0]; }
+                    else            { self.memory[address] = data[0]; }
                     try logger.print("to effective address {d} (0x{x:0>4})", .{ address, address });
                 },
                 .immediate => |_| unreachable,
@@ -1178,6 +1199,33 @@ test "8086.Simulator" {
         .{ .src = @src(), .mem = "\xa3\x0f\x00",     .reg = .ax, .val = 0x1234, .msg = "mov [15], ax" },
         .{ .src = @src(), .mem = "\xbb\x00\x00",     .reg = .bx, .val = 0x0000, .msg = "mov bx, 0" },
         .{ .src = @src(), .mem = "\x8b\x1e\x0f\x00", .reg = .bx, .val = 0x1234, .msg = "mov bx, [15]" },
+        // add tests
+        .{ .src = @src(), .mem = "\xb8\x01\x00", .reg = .ax, .val = 0x0001, .msg = "mov ax, 1" },
+        .{ .src = @src(), .mem = "\xbb\x01\x00", .reg = .bx, .val = 0x0001, .msg = "mov bx, 1" },
+        .{ .src = @src(), .mem = "\x01\xd8",     .reg = .ax, .val = 0x0002, .msg = "add ax, bx" },
+        //.{ .src = @src(), .bytes = "\x03\x18", .output = "add bx, [bx + si]" },
+        //.{ .src = @src(), .bytes = "\x03\x5e\x00", .output = "add bx, [bp]" },    // id     sw  mod type rm
+        //.{ .src = @src(), .bytes = "\x83\xc6\x02\x00", .output = "add si, 2" },
+        //.{ .src = @src(), .bytes = "\x83\xc5\x02\x00", .output = "add bp, 2" },
+        //.{ .src = @src(), .bytes = "\x83\xc1\x08\x00", .output = "add cx, 8" },
+        //.{ .src = @src(), .bytes = "\x03\x5e\x00", .output = "add bx, [bp]" },
+        //.{ .src = @src(), .bytes = "\x03\x4f\x02", .output = "add cx, [bx + 2]" },
+        //.{ .src = @src(), .bytes = "\x02\x7a\x04", .output = "add bh, [bp + si + 4]" },
+        //.{ .src = @src(), .bytes = "\x03\x7b\x06", .output = "add di, [bp + di + 6]" },
+        //.{ .src = @src(), .bytes = "\x01\x18", .output = "add [bx + si], bx" },
+        //.{ .src = @src(), .bytes = "\x01\x5e\x00", .output = "add [bp], bx" },
+        //.{ .src = @src(), .bytes = "\x01\x5e\x00", .output = "add [bp], bx" },
+        //.{ .src = @src(), .bytes = "\x01\x4f\x02", .output = "add [bx + 2], cx" },
+        //.{ .src = @src(), .bytes = "\x00\x7a\x04", .output = "add [bp + si + 4], bh" },
+        //.{ .src = @src(), .bytes = "\x01\x7b\x06", .output = "add [bp + di + 6], di" },
+        //.{ .src = @src(), .bytes = "\x80\x07\x22", .output = "add [bx], byte 34" },
+        //.{ .src = @src(), .bytes = "\x83\x82\xe8\x03\x1d\x00", .output = "add [bp + si + 1000], word 29" },
+        //.{ .src = @src(), .bytes = "\x03\x46\x00", .output = "add ax, [bp]" },
+        //.{ .src = @src(), .bytes = "\x02\x00", .output = "add al, [bx + si]" },
+        //.{ .src = @src(), .bytes = "\x00\xe0", .output = "add al, ah" },
+        //.{ .src = @src(), .bytes = "\x05\xe8\x03", .output = "add ax, 1000" },
+        //.{ .src = @src(), .bytes = "\x04\xe2", .output = "add al, -30" },
+        //.{ .src = @src(), .bytes = "\x04\x09", .output = "add al, 9" },
     };
     var output_buffer: [1024*1024]u8 = undefined;
     var fbs = io.fixedBufferStream(&output_buffer);
