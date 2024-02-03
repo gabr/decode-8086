@@ -465,49 +465,46 @@ const CPU8086 = struct {
         }
 
         fn add(self: *@This(), dst: InstructionTarget, src: InstructionTarget, logger: anytype) !void {
-            const src_value = try self.getSrcValue(dst, src, logger);
-            _ = try logger.write(", ");
-            var dst_value = try self.getSrcValue(dst, dst, logger);
-            _ = try logger.write(", ");
+            const src_value = try self.getSrcValue(dst, src, null,           logger); _ = try logger.write(", ");
+            var   dst_value = try self.getSrcValue(dst, dst, src_value.wide, logger); _ = try logger.write(", ");
             dst_value.val += src_value.val; // TODO: overflow
             try self.setDstValue(dst, dst_value, logger);
         }
 
         fn sub(self: *@This(), dst: InstructionTarget, src: InstructionTarget, logger: anytype) !void {
-            const src_value = try self.getSrcValue(dst, src, logger);
-            _ = try logger.write(", ");
-            var dst_value = try self.getSrcValue(dst, dst, logger);
-            _ = try logger.write(", ");
+            const src_value = try self.getSrcValue(dst, src, null,           logger); _ = try logger.write(", ");
+            var   dst_value = try self.getSrcValue(dst, dst, src_value.wide, logger); _ = try logger.write(", ");
             dst_value.val -= src_value.val; // TODO: underflow
             try self.setDstValue(dst, dst_value, logger);
         }
 
         fn mov(self: *@This(), dst: InstructionTarget, src: InstructionTarget, logger: anytype) !void {
-            const src_value = try self.getSrcValue(dst, src, logger);
+            const src_value = try self.getSrcValue(dst, src, null, logger);
             _ = try logger.write(", ");
             try self.setDstValue(dst, src_value, logger);
         }
 
         const Value = struct { val: u16, wide: bool, };
-        fn getSrcValue(self: @This(), dst: InstructionTarget, src: InstructionTarget, logger: anytype) !Value {
+        fn getSrcValue(self: @This(), dst: InstructionTarget, src: InstructionTarget, wide: ?bool, logger: anytype) !Value {
             _ = try logger.write("get ");
             var v = Value {
                 .val  = undefined,
                 .wide = undefined,
             };
+            if (wide) |w| v.wide = w;
             switch (src) {
                 .register => |i| {
                     v.val  = self.getRegisterValue(i.register);
-                    v.wide = i.register.is8bit() == false;
+                    if (wide == null) v.wide = i.register.is8bit() == false;
                     try logger.print("register {s}", .{@tagName(i.register)});
                 },
                 .segment_register => |i| {
                     v.val  = self.getSegmentRegisterValue(i.register);
-                    v.wide = true;
+                    if (wide == null) v.wide = true;
                     try logger.print("segment register {s}", .{@tagName(i.register)});
                 },
                 .address => |i| {
-                    v.wide = i.is_wide and switch (dst) {
+                    if (wide == null) v.wide = i.is_wide and switch (dst) {
                         .register => |d| d.register.is8bit() == false,
                         else => true,
                     };
@@ -516,13 +513,13 @@ const CPU8086 = struct {
                     try logger.print("{s}address {d} (0x{x:0>4})", .{ (if (i.is_wide) "wide " else ""), i.address, i.address });
                 },
                 .immediate => |i| {
+                    if (wide == null) v.wide = i.is_wide;
                     v.val = if (i.is_wide) @as(u16, @bitCast(i.data)) // is that LISP (O.O)
                             else           @as(u16, @intCast(@as(u8,  @bitCast(@as(i8, @intCast(i.data))))));
-                    v.wide = i.is_wide;
                     try logger.print("immedate {s}value {d}", .{ (if (i.is_wide) "wide " else ""), i.data });
                 },
                 .effective_address => |i| {
-                    v.wide = switch (dst) {
+                    if (wide == null) v.wide = switch (dst) {
                         .register          => |d| d.register.is8bit() == false,
                         .segment_register  => |_| true,
                         .address           => |d| d.is_wide,
@@ -1235,6 +1232,7 @@ test "8086.Simulator" {
         // setup and test
         .{ .src = @src(), .mem = "\xb9\x01\x00",     .reg = .cx, .val = 0x0001, .msg = "mov cx, 1" },
         .{ .src = @src(), .mem = "\x83\xc1\x08\x00", .reg = .cx, .val = 0x0009, .msg = "add cx, 8" },
+        .{ .src = @src(), .mem = "\x83\xc1\xfe\x00", .reg = .cx, .val = 0x0107, .msg = "add cx, -2" },
         // half registers add
         .{ .src = @src(), .mem = "\xb0\x01", .reg = .al, .val = 0x01,   .msg = "mov al, 1" },
         .{ .src = @src(), .mem = "\xb3\x01", .reg = .bl, .val = 0x01,   .msg = "mov bl, 1" },
@@ -1290,16 +1288,36 @@ test "8086.Simulator" {
         .{ .src = @src(), .mem = "\x01\x4f\x02",             .reg = .cx, .val = 0x0001, .msg = "add [bx + 2], cx" },
         .{ .src = @src(), .mem = "\x8b\x4f\x02",             .reg = .cx, .val = 0x0008, .msg = "mov cx, [bx + 2]" },
         // setup and test
-        //.{ .src = @src(), .bytes = "\x00\x7a\x04", .output = "add [bp + si + 4], bh" },
-        //.{ .src = @src(), .bytes = "\x01\x7b\x06", .output = "add [bp + di + 6], di" },
-        //.{ .src = @src(), .bytes = "\x80\x07\x22", .output = "add [bx], byte 34" },
-        //.{ .src = @src(), .bytes = "\x83\x82\xe8\x03\x1d\x00", .output = "add [bp + si + 1000], word 29" },
-        //.{ .src = @src(), .bytes = "\x03\x46\x00", .output = "add ax, [bp]" },
-        //.{ .src = @src(), .bytes = "\x02\x00", .output = "add al, [bx + si]" },
-        //.{ .src = @src(), .bytes = "\x00\xe0", .output = "add al, ah" },
-        //.{ .src = @src(), .bytes = "\x05\xe8\x03", .output = "add ax, 1000" },
-        //.{ .src = @src(), .bytes = "\x04\xe2", .output = "add al, -30" },
-        //.{ .src = @src(), .bytes = "\x04\x09", .output = "add al, 9" },
+        .{ .src = @src(), .mem = "\xbd\xd8\xef",         .reg = .bp, .val = 0xefd8, .msg = "mov bp, 61400" },
+        .{ .src = @src(), .mem = "\xbe\x24\x00",         .reg = .si, .val = 0x0024, .msg = "mov si, 36" },
+        .{ .src = @src(), .mem = "\xc6\x06\x00\xf0\x08", .reg = .si, .val = 0x0024, .msg = "mov [61440], byte 8" },
+        .{ .src = @src(), .mem = "\xb7\x02",             .reg = .bh, .val = 0x02,   .msg = "mov bh, 2" },
+        .{ .src = @src(), .mem = "\x00\x7a\x04",         .reg = .bh, .val = 0x02,   .msg = "add [bp + si + 4], bh" },
+        .{ .src = @src(), .mem = "\xb0\x00",             .reg = .al, .val = 0x00,   .msg = "mov al, 0" },
+        .{ .src = @src(), .mem = "\xa0\x00\xf0",         .reg = .al, .val = 0x0a,   .msg = "mov al, [61440]" },
+        // setup and test
+        .{ .src = @src(), .mem = "\xb8\x00\x00",             .reg = .ax, .val = 0x0000, .msg = "mov ax, 0" },
+        .{ .src = @src(), .mem = "\xc7\x06\x00\xf0\x05\x00", .reg = .ax, .val = 0x0000, .msg = "mov [61440], word 5" },
+        .{ .src = @src(), .mem = "\xbd\xd8\xef",             .reg = .bp, .val = 0xefd8, .msg = "mov bp, 61400" },
+        .{ .src = @src(), .mem = "\xbf\x22\x00",             .reg = .di, .val = 0x0022, .msg = "mov di, 34" },
+        .{ .src = @src(), .mem = "\x01\x7b\x06",             .reg = .di, .val = 0x0022, .msg = "add [bp + di + 6], di" },
+        .{ .src = @src(), .mem = "\xa1\x00\xf0",             .reg = .ax, .val = 0x0027, .msg = "mov ax, [61440]" },
+        // setup and test
+        .{ .src = @src(), .mem = "\xbb\x00\xf0",         .reg = .bx, .val = 0xf000, .msg = "mov bx, 61440" },
+        .{ .src = @src(), .mem = "\xc6\x06\x00\xf0\x06", .reg = .bx, .val = 0xf000, .msg = "mov [61440], byte 6" },
+        .{ .src = @src(), .mem = "\x80\x07\x22",         .reg = .bx, .val = 0xf000, .msg = "add [bx], byte 34" },
+        .{ .src = @src(), .mem = "\xa0\x00\xf0",         .reg = .al, .val = 0x28,   .msg = "mov al, [61440]" },
+        // setup and test
+        .{ .src = @src(), .mem = "\xbd\xf0\xeb",             .reg = .bp, .val = 0xebf0, .msg = "mov bp, 60400" },
+        .{ .src = @src(), .mem = "\xbe\x28\x00",             .reg = .si, .val = 0x0028, .msg = "mov si, 40" },
+        .{ .src = @src(), .mem = "\xc7\x06\x00\xf0\x06\x00", .reg = .si, .val = 0x0028, .msg = "mov [61440], word 6" },
+        .{ .src = @src(), .mem = "\x83\x82\xe8\x03\x1d\x00", .reg = .si, .val = 0x0028, .msg = "add [bp + si + 1000], word 29" },
+        .{ .src = @src(), .mem = "\xa1\x00\xf0",             .reg = .ax, .val = 0x0023, .msg = "mov ax, [61440]" },
+        // setup and test
+        .{ .src = @src(), .mem = "\xb8\x11\x00",             .reg = .ax, .val = 0x0011, .msg = "mov ax, 17" },
+        .{ .src = @src(), .mem = "\xbd\x00\xf0",             .reg = .bp, .val = 0xf000, .msg = "mov bp, 61440" },
+        .{ .src = @src(), .mem = "\xc7\x06\x00\xf0\x01\x00", .reg = .bp, .val = 0xf000, .msg = "mov [61440], word 1" },
+        .{ .src = @src(), .mem = "\x03\x46\x00",             .reg = .ax, .val = 0x0012, .msg = "add ax, [bp]" },
     };
     var output_buffer: [1024*1024]u8 = undefined;
     var fbs = io.fixedBufferStream(&output_buffer);
