@@ -452,7 +452,7 @@ const CPU8086 = struct {
                         .nop => {}, // do nothing
                         .mov => try self.mov(instruction.dst, instruction.src, logger),
                         .add => try self.add(instruction.dst, instruction.src, logger),
-                        //.sub => ,
+                        .sub => try self.sub(instruction.dst, instruction.src, logger),
                         //.cmp => ,
                         .hlt => break,
                         else => unreachable,
@@ -464,22 +464,33 @@ const CPU8086 = struct {
             _ = try logger.write("\nsimulation end\n");
         }
 
-
         fn add(self: *@This(), dst: InstructionTarget, src: InstructionTarget, logger: anytype) !void {
             const src_value = try self.getSrcValue(dst, src, logger);
+            _ = try logger.write(", ");
             var dst_value = try self.getSrcValue(dst, dst, logger);
-            dst_value.val += src_value.val;
+            _ = try logger.write(", ");
+            dst_value.val += src_value.val; // TODO: overflow
+            try self.setDstValue(dst, dst_value, logger);
+        }
+
+        fn sub(self: *@This(), dst: InstructionTarget, src: InstructionTarget, logger: anytype) !void {
+            const src_value = try self.getSrcValue(dst, src, logger);
+            _ = try logger.write(", ");
+            var dst_value = try self.getSrcValue(dst, dst, logger);
+            _ = try logger.write(", ");
+            dst_value.val -= src_value.val; // TODO: underflow
             try self.setDstValue(dst, dst_value, logger);
         }
 
         fn mov(self: *@This(), dst: InstructionTarget, src: InstructionTarget, logger: anytype) !void {
             const src_value = try self.getSrcValue(dst, src, logger);
+            _ = try logger.write(", ");
             try self.setDstValue(dst, src_value, logger);
         }
 
         const Value = struct { val: u16, wide: bool, };
         fn getSrcValue(self: @This(), dst: InstructionTarget, src: InstructionTarget, logger: anytype) !Value {
-            _ = try logger.write("  ; ");
+            _ = try logger.write("get ");
             var v = Value {
                 .val  = undefined,
                 .wide = undefined,
@@ -488,12 +499,12 @@ const CPU8086 = struct {
                 .register => |i| {
                     v.val  = self.getRegisterValue(i.register);
                     v.wide = i.register.is8bit() == false;
-                    try logger.print("from register {s}", .{@tagName(i.register)});
+                    try logger.print("register {s}", .{@tagName(i.register)});
                 },
                 .segment_register => |i| {
                     v.val  = self.getSegmentRegisterValue(i.register);
                     v.wide = true;
-                    try logger.print("from segment register {s}", .{@tagName(i.register)});
+                    try logger.print("segment register {s}", .{@tagName(i.register)});
                 },
                 .address => |i| {
                     v.wide = i.is_wide and switch (dst) {
@@ -502,7 +513,7 @@ const CPU8086 = struct {
                     };
                     v.val = if (v.wide) @as(u16, @bitCast([_]u8{self.memory[i.address+1],self.memory[i.address]}))
                             else        @as(u16, @intCast(self.memory[i.address]));
-                    try logger.print("from {s}address {d} (0x{x:0>4})", .{ (if (i.is_wide) "wide " else ""), i.address, i.address });
+                    try logger.print("{s}address {d} (0x{x:0>4})", .{ (if (i.is_wide) "wide " else ""), i.address, i.address });
                 },
                 .immediate => |i| {
                     v.val = if (i.is_wide) @as(u16, @bitCast(i.data)) // is that LISP (O.O)
@@ -515,44 +526,46 @@ const CPU8086 = struct {
                         .register          => |d| d.register.is8bit() == false,
                         .segment_register  => |_| true,
                         .address           => |d| d.is_wide,
-                        .effective_address => |_| unreachable,
-                        .immediate         => |_| unreachable,
+                        .effective_address => |_| true,
+                        .immediate         => |_| return error.UnknownWideForImmediate,
                     };
                     const address = try self.getEffectiveAddress(i, logger);
                     v.val = if (v.wide) @as(u16, @bitCast([_]u8{self.memory[address+1],self.memory[address]}))
                             else        @as(u16, @intCast(self.memory[address]));
-                    try logger.print("from effective address {d} (0x{x:0>4})", .{ address, address });
+                    try logger.print(" effective address {d} (0x{x:0>4})", .{ address, address });
                 },
             }
-            try logger.print(", {s}value {d} (0x{x:0>4}) ", .{(if (v.wide) "wide " else ""), v.val, v.val});
+            try logger.print(" - {s}value {d} (0x{x:0>4})", .{(if (v.wide) "wide " else ""), v.val, v.val});
             return v;
         }
 
-        fn setDstValue(self: *@This(), dst: InstructionTarget, value: Value, logger: anytype) !void {
+        fn setDstValue(self: *@This(), dst: InstructionTarget, v: Value, logger: anytype) !void {
+            _ = try logger.write("set ");
             switch (dst) {
                 .register => |i| {
-                    try self.setRegisterValue(i.register, value.val);
-                    try logger.print("to register {s}", .{@tagName(i.register)});
+                    try self.setRegisterValue(i.register, v.val);
+                    try logger.print("register {s}", .{@tagName(i.register)});
                 },
                 .segment_register => |i| {
-                    self.setSegmentRegisterValue(i.register, value.val);
-                    try logger.print("to segment register {s}", .{@tagName(i.register)});
+                    self.setSegmentRegisterValue(i.register, v.val);
+                    try logger.print("segment register {s}", .{@tagName(i.register)});
                 },
                 .address => |i| {
-                    const data: [2]u8 = @bitCast(value.val);
-                    if (value.wide) { self.memory[i.address] = data[1];  self.memory[i.address+1] = data[0]; }
-                    else            { self.memory[i.address] = data[0]; }
-                    try logger.print("to {s}address {d} (0x{x:0>4})", .{ (if (i.is_wide) "wide " else ""), i.address, i.address });
+                    const data: [2]u8 = @bitCast(v.val);
+                    if (v.wide) { self.memory[i.address] = data[1];  self.memory[i.address+1] = data[0]; }
+                    else        { self.memory[i.address] = data[0]; }
+                    try logger.print("{s}address {d} (0x{x:0>4})", .{ (if (i.is_wide) "wide " else ""), i.address, i.address });
                 },
                 .effective_address => |i| {
-                    const data: [2]u8 = @bitCast(value.val);
+                    const data: [2]u8 = @bitCast(v.val);
                     const address = try self.getEffectiveAddress(i, logger);
-                    if (value.wide) { self.memory[address] = data[1];  self.memory[address+1] = data[0]; }
-                    else            { self.memory[address] = data[0]; }
-                    try logger.print("to effective address {d} (0x{x:0>4})", .{ address, address });
+                    if (v.wide) { self.memory[address] = data[1];  self.memory[address+1] = data[0]; }
+                    else        { self.memory[address] = data[0]; }
+                    try logger.print(" effective address {d} (0x{x:0>4})", .{ address, address });
                 },
-                .immediate => |_| unreachable,
+                .immediate => |_| return error.ImmediateUnsupported,
             }
+            try logger.print(" = {s} {d} (0x{x:0>4})", .{(if (v.wide) "word " else "byte"), v.val, v.val});
         }
 
         fn logAndAddRegisters(self: @This(), r1: Register, r2: Register, logger: anytype) !i32 {
@@ -828,6 +841,7 @@ test "8086.decode" {
           // adds
         .{ .src = @src(), .bytes = "\x03\x18", .output = "add bx, [bx + si]" },
         .{ .src = @src(), .bytes = "\x03\x5e\x00", .output = "add bx, [bp]" },    // id     sw  mod type rm
+        .{ .src = @src(), .bytes = "\x83\xc6\x01\x00", .output = "add si, 1" },
         .{ .src = @src(), .bytes = "\x83\xc6\x02\x00", .output = "add si, 2" },
         .{ .src = @src(), .bytes = "\x83\xc5\x02\x00", .output = "add bp, 2" },
         .{ .src = @src(), .bytes = "\x83\xc1\x08\x00", .output = "add cx, 8" },
@@ -847,7 +861,8 @@ test "8086.decode" {
         .{ .src = @src(), .bytes = "\x02\x00", .output = "add al, [bx + si]" },
         .{ .src = @src(), .bytes = "\x01\xd8", .output = "add ax, bx" },
         .{ .src = @src(), .bytes = "\x00\xe0", .output = "add al, ah" },
-        .{ .src = @src(), .bytes = "\x05\xe8\x03", .output = "add ax, 1000" },
+        .{ .src = @src(), .bytes = "\x83\xc0\x00\x00", .output = "add ax, 0" },
+        .{ .src = @src(), .bytes = "\x05\xe8\x03",     .output = "add ax, 1000" },
         .{ .src = @src(), .bytes = "\x04\xe2", .output = "add al, -30" },
         .{ .src = @src(), .bytes = "\x04\x09", .output = "add al, 9" },
           // subs
@@ -919,8 +934,9 @@ test "8086.decode" {
         } else |err| {
             // print details on decode fail but continue with the tests
             failed_tests += 1;
-            debug.print("test {d} failed, bytes: {x}, expected ({d}): '{s}', got: {any}\n", .{
+            debug.print("test {d} (line {d}) failed, bytes: {x}, expected ({d}): '{s}', got: {any}\n", .{
                 index,
+                test_case.src.line,
                 fmt.fmtSliceHexLower(test_case.bytes),
                 test_case.output.len, test_case.output,
                 err
@@ -1200,22 +1216,80 @@ test "8086.Simulator" {
         .{ .src = @src(), .mem = "\xbb\x00\x00",     .reg = .bx, .val = 0x0000, .msg = "mov bx, 0" },
         .{ .src = @src(), .mem = "\x8b\x1e\x0f\x00", .reg = .bx, .val = 0x1234, .msg = "mov bx, [15]" },
         // add tests
-        .{ .src = @src(), .mem = "\xb8\x01\x00", .reg = .ax, .val = 0x0001, .msg = "mov ax, 1" },
-        .{ .src = @src(), .mem = "\xbb\x01\x00", .reg = .bx, .val = 0x0001, .msg = "mov bx, 1" },
-        .{ .src = @src(), .mem = "\x01\xd8",     .reg = .ax, .val = 0x0002, .msg = "add ax, bx" },
-        //.{ .src = @src(), .bytes = "\x03\x18", .output = "add bx, [bx + si]" },
-        //.{ .src = @src(), .bytes = "\x03\x5e\x00", .output = "add bx, [bp]" },    // id     sw  mod type rm
-        //.{ .src = @src(), .bytes = "\x83\xc6\x02\x00", .output = "add si, 2" },
-        //.{ .src = @src(), .bytes = "\x83\xc5\x02\x00", .output = "add bp, 2" },
-        //.{ .src = @src(), .bytes = "\x83\xc1\x08\x00", .output = "add cx, 8" },
-        //.{ .src = @src(), .bytes = "\x03\x5e\x00", .output = "add bx, [bp]" },
-        //.{ .src = @src(), .bytes = "\x03\x4f\x02", .output = "add cx, [bx + 2]" },
-        //.{ .src = @src(), .bytes = "\x02\x7a\x04", .output = "add bh, [bp + si + 4]" },
-        //.{ .src = @src(), .bytes = "\x03\x7b\x06", .output = "add di, [bp + di + 6]" },
-        //.{ .src = @src(), .bytes = "\x01\x18", .output = "add [bx + si], bx" },
-        //.{ .src = @src(), .bytes = "\x01\x5e\x00", .output = "add [bp], bx" },
-        //.{ .src = @src(), .bytes = "\x01\x5e\x00", .output = "add [bp], bx" },
-        //.{ .src = @src(), .bytes = "\x01\x4f\x02", .output = "add [bx + 2], cx" },
+        // simple registers add
+        // setup and test
+        .{ .src = @src(), .mem = "\xb8\x01\x00",     .reg = .ax, .val = 0x0001, .msg = "mov ax, 1" },
+        .{ .src = @src(), .mem = "\xbb\x01\x00",     .reg = .bx, .val = 0x0001, .msg = "mov bx, 1" },
+        .{ .src = @src(), .mem = "\x01\xd8",         .reg = .ax, .val = 0x0002, .msg = "add ax, bx" },
+        // setup and test
+        .{ .src = @src(), .mem = "\xb8\x00\xf0",     .reg = .ax, .val = 0xf000, .msg = "mov ax, 61440" },
+        .{ .src = @src(), .mem = "\xbb\x00\x0f",     .reg = .bx, .val = 0x0f00, .msg = "mov bx, 3840" },
+        .{ .src = @src(), .mem = "\x01\xd8",         .reg = .ax, .val = 0xff00, .msg = "add ax, bx" },
+        // setup and test
+        .{ .src = @src(), .mem = "\xbe\x01\x00",     .reg = .si, .val = 0x0001, .msg = "mov si, 1" },
+        .{ .src = @src(), .mem = "\x83\xc6\x01\x00", .reg = .si, .val = 0x0002, .msg = "add si, 1" },
+        .{ .src = @src(), .mem = "\x83\xc6\x02\x00", .reg = .si, .val = 0x0004, .msg = "add si, 2" },
+        // setup and test
+        .{ .src = @src(), .mem = "\xbd\x01\x00",     .reg = .bp, .val = 0x0001, .msg = "mov bp, 1" },
+        .{ .src = @src(), .mem = "\x83\xc5\x02\x00", .reg = .bp, .val = 0x0003, .msg = "add bp, 2" },
+        // setup and test
+        .{ .src = @src(), .mem = "\xb9\x01\x00",     .reg = .cx, .val = 0x0001, .msg = "mov cx, 1" },
+        .{ .src = @src(), .mem = "\x83\xc1\x08\x00", .reg = .cx, .val = 0x0009, .msg = "add cx, 8" },
+        // half registers add
+        .{ .src = @src(), .mem = "\xb0\x01", .reg = .al, .val = 0x01,   .msg = "mov al, 1" },
+        .{ .src = @src(), .mem = "\xb3\x01", .reg = .bl, .val = 0x01,   .msg = "mov bl, 1" },
+        .{ .src = @src(), .mem = "\x00\xd8", .reg = .al, .val = 0x02,   .msg = "add al, bl" },
+        // memory to register add
+        .{ .src = @src(), .mem = "\xb8\x34\x12",     .reg = .ax, .val = 0x1234, .msg = "mov ax, 4660" },
+        .{ .src = @src(), .mem = "\xa3\x00\xf0",     .reg = .ax, .val = 0x1234, .msg = "mov [61440], ax" },
+        .{ .src = @src(), .mem = "\xbb\x01\x00",     .reg = .bx, .val = 0x0001, .msg = "mov bx, 1" },
+        .{ .src = @src(), .mem = "\xbe\xff\xef",     .reg = .si, .val = 0xefff, .msg = "mov si, 61439" },
+        .{ .src = @src(), .mem = "\x03\x18",         .reg = .bx, .val = 0x1235, .msg = "add bx, [bx + si]" },
+        // setup and test
+        .{ .src = @src(), .mem = "\xbd\x00\xf0",             .reg = .bp, .val = 0xf000, .msg = "mov bp, 61440" },
+        .{ .src = @src(), .mem = "\xc7\x06\x00\xf0\x01\x00", .reg = .bp, .val = 0xf000, .msg = "mov [61440], word 1" },
+        .{ .src = @src(), .mem = "\xa1\x00\xf0",             .reg = .ax, .val = 0x0001, .msg = "mov ax, [61440]" },
+        .{ .src = @src(), .mem = "\xbb\x00\x00",             .reg = .bx, .val = 0x0000, .msg = "mov bx, 0" },
+        .{ .src = @src(), .mem = "\x03\x5e\x00",             .reg = .bx, .val = 0x0001, .msg = "add bx, [bp]" },
+        .{ .src = @src(), .mem = "\x03\x5e\x00",             .reg = .bx, .val = 0x0002, .msg = "add bx, [bp]" },
+        // memory with offset to register add
+        .{ .src = @src(), .mem = "\xbb\xfe\xef",             .reg = .bx, .val = 0xeffe, .msg = "mov bx, 61438" },
+        .{ .src = @src(), .mem = "\xc7\x06\x00\xf0\x01\x00", .reg = .bp, .val = 0xf000, .msg = "mov [61440], word 1" },
+        .{ .src = @src(), .mem = "\xb9\x01\x00",             .reg = .cx, .val = 0x0001, .msg = "mov cx, 1" },
+        .{ .src = @src(), .mem = "\x03\x4f\x02",             .reg = .cx, .val = 0x0002, .msg = "add cx, [bx + 2]" },
+        // memory with effective address calculation and offset to register add
+        .{ .src = @src(), .mem = "\xbd\xf6\xef",         .reg = .bp, .val = 0xeff6, .msg = "mov bp, 61430" },
+        .{ .src = @src(), .mem = "\xbe\x06\x00",         .reg = .si, .val = 0x0006, .msg = "mov si, 6" },
+        .{ .src = @src(), .mem = "\xc6\x06\x00\xf0\x01", .reg = .bp, .val = 0xeff6, .msg = "mov [61440], byte 1" },
+        .{ .src = @src(), .mem = "\xb7\x01",             .reg = .bh, .val = 0x01,   .msg = "mov bh, 1" },
+        .{ .src = @src(), .mem = "\x02\x7a\x04",         .reg = .bh, .val = 0x02,   .msg = "add bh, [bp + si + 4]" },
+        // setup and test
+        .{ .src = @src(), .mem = "\xbd\xf6\xef",             .reg = .bp, .val = 0xeff6, .msg = "mov bp, 61430" },
+        .{ .src = @src(), .mem = "\xbf\x04\x00",             .reg = .di, .val = 0x04,   .msg = "mov di, 4" },
+        .{ .src = @src(), .mem = "\xc7\x06\x00\xf0\x01\x00", .reg = .bp, .val = 0xeff6, .msg = "mov [61440], word 1" },
+        .{ .src = @src(), .mem = "\x03\x7b\x06",             .reg = .di, .val = 0x0005, .msg = "add di, [bp + di + 6]" },
+        // register to memory address add
+        .{ .src = @src(), .mem = "\xbb\xf6\xef",             .reg = .bx, .val = 0xeff6, .msg = "mov bx, 61430" },
+        .{ .src = @src(), .mem = "\xbe\x0a\x00",             .reg = .si, .val = 0x000a, .msg = "mov si, 10" },
+        .{ .src = @src(), .mem = "\xc7\x06\x00\xf0\x00\x00", .reg = .si, .val = 0x000a, .msg = "mov [61440], word 0" },
+        .{ .src = @src(), .mem = "\x01\x18",                 .reg = .si, .val = 0x000a, .msg = "add [bx + si], bx" },
+        .{ .src = @src(), .mem = "\xb8\x00\x00",             .reg = .ax, .val = 0x0000, .msg = "mov ax, 0" },
+        .{ .src = @src(), .mem = "\x03\x00",                 .reg = .ax, .val = 0xeff6, .msg = "add ax, [bx + si]" },
+        // setup and test
+        .{ .src = @src(), .mem = "\xbd\x00\xf0",         .reg = .bp, .val = 0xf000, .msg = "mov bp, 61440" },
+        .{ .src = @src(), .mem = "\xbb\x01\x00",         .reg = .bx, .val = 0x0001, .msg = "mov bx, 1" },
+        .{ .src = @src(), .mem = "\xc7\x46\x00\x00\x00", .reg = .bx, .val = 0x0001, .msg = "mov [bp], word 0" },
+        .{ .src = @src(), .mem = "\x01\x5e\x00",         .reg = .bx, .val = 0x0001, .msg = "add [bp], bx" },
+        .{ .src = @src(), .mem = "\x01\x5e\x00",         .reg = .bx, .val = 0x0001, .msg = "add [bp], bx" },
+        .{ .src = @src(), .mem = "\x01\x5e\x00",         .reg = .bx, .val = 0x0001, .msg = "add [bp], bx" },
+        // setup and test
+        .{ .src = @src(), .mem = "\x8b\x5e\x00",             .reg = .bx, .val = 0x0003, .msg = "mov bx, [bp]" },
+        .{ .src = @src(), .mem = "\xbb\xfe\xef",             .reg = .bx, .val = 0xeffe, .msg = "mov bx, 61438" },
+        .{ .src = @src(), .mem = "\xc7\x06\x00\xf0\x07\x00", .reg = .bx, .val = 0xeffe, .msg = "mov [61440], word 7" },
+        .{ .src = @src(), .mem = "\xb9\x01\x00",             .reg = .cx, .val = 0x0001, .msg = "mov cx, 1" },
+        .{ .src = @src(), .mem = "\x01\x4f\x02",             .reg = .cx, .val = 0x0001, .msg = "add [bx + 2], cx" },
+        .{ .src = @src(), .mem = "\x8b\x4f\x02",             .reg = .cx, .val = 0x0008, .msg = "mov cx, [bx + 2]" },
+        // setup and test
         //.{ .src = @src(), .bytes = "\x00\x7a\x04", .output = "add [bp + si + 4], bh" },
         //.{ .src = @src(), .bytes = "\x01\x7b\x06", .output = "add [bp + di + 6], di" },
         //.{ .src = @src(), .bytes = "\x80\x07\x22", .output = "add [bx], byte 34" },
@@ -1230,12 +1304,15 @@ test "8086.Simulator" {
     var output_buffer: [1024*1024]u8 = undefined;
     var fbs = io.fixedBufferStream(&output_buffer);
     const logger = fbs.writer();
+
     for (test_cases, 0..) |test_case, index| {
         // reset the buffer at the end of the loop
         defer fbs.reset();
         // print details on failure
-        errdefer debug.print("failed on test case {d} (line {d}): {s}\n{s}\n",
-            .{index+1, test_case.src.line, test_case.msg, output_buffer[0..fbs.pos]});
+        errdefer debug.print("failed on test case {d} (line {d}): {s}\n",
+            .{index+1, test_case.src.line, test_case.msg});
+        // NOTE: change to just defer to have complete run output for debugging
+        errdefer debug.print("{s}\n", .{output_buffer[0..fbs.pos]});
         // setup - we do not reset or override memory - only append to it
         mem.copyForwards(u8, simulator.memory[simulator.ip..], test_case.mem);
         simulator.memory[simulator.ip + test_case.mem.len] = 0xf4; // hlt at the end

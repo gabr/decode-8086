@@ -134,3 +134,22 @@
 [ ] sprawdzić czy taka konstrukcja jest ogólnie niedozwolona czy to tylko kod
     wykonywany w czasie kompilacji tego nie lubi
 
+
+# 03.02.2024 (sobota) Katowice
+    Coś mi dziwnie działają testy i chciałem je debugować gdb.
+    Nie jest to trywialne bo użycie: gdb zig build test
+    nie działa.
+
+    Trzeba znaleźć binarkę testu (ostatnią) i to odpalić.
+    Samo stawianie breakpointów tez nie jest najprostsze,
+    więc najłatwiej to zrobić w kodzie:
+
+        if (mem.endsWith(u8, test_case.msg, "word 1")) { @breakpoint(); }
+
+    A komenda:
+
+        gdb $(find zig-cache -name test | head -n 1)
+
+    Niepotrzebnie się jednak męczyłem bo szukałem buga, którego nie było>
+    Miałem błąd w testach.
+
