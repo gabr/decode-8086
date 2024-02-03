@@ -1215,13 +1215,13 @@ test "8086.Simulator" {
         // add tests
         // simple registers add
         // setup and test
-        .{ .src = @src(), .mem = "\xb8\x01\x00",     .reg = .ax, .val = 0x0001, .msg = "mov ax, 1" },
-        .{ .src = @src(), .mem = "\xbb\x01\x00",     .reg = .bx, .val = 0x0001, .msg = "mov bx, 1" },
-        .{ .src = @src(), .mem = "\x01\xd8",         .reg = .ax, .val = 0x0002, .msg = "add ax, bx" },
+        .{ .src = @src(), .mem = "\xb8\x01\x00", .reg = .ax, .val = 0x0001, .msg = "mov ax, 1" },
+        .{ .src = @src(), .mem = "\xbb\x01\x00", .reg = .bx, .val = 0x0001, .msg = "mov bx, 1" },
+        .{ .src = @src(), .mem = "\x01\xd8",     .reg = .ax, .val = 0x0002, .msg = "add ax, bx" },
         // setup and test
-        .{ .src = @src(), .mem = "\xb8\x00\xf0",     .reg = .ax, .val = 0xf000, .msg = "mov ax, 61440" },
-        .{ .src = @src(), .mem = "\xbb\x00\x0f",     .reg = .bx, .val = 0x0f00, .msg = "mov bx, 3840" },
-        .{ .src = @src(), .mem = "\x01\xd8",         .reg = .ax, .val = 0xff00, .msg = "add ax, bx" },
+        .{ .src = @src(), .mem = "\xb8\x00\xf0", .reg = .ax, .val = 0xf000, .msg = "mov ax, 61440" },
+        .{ .src = @src(), .mem = "\xbb\x00\x0f", .reg = .bx, .val = 0x0f00, .msg = "mov bx, 3840" },
+        .{ .src = @src(), .mem = "\x01\xd8",     .reg = .ax, .val = 0xff00, .msg = "add ax, bx" },
         // setup and test
         .{ .src = @src(), .mem = "\xbe\x01\x00",     .reg = .si, .val = 0x0001, .msg = "mov si, 1" },
         .{ .src = @src(), .mem = "\x83\xc6\x01\x00", .reg = .si, .val = 0x0002, .msg = "add si, 1" },
@@ -1238,11 +1238,11 @@ test "8086.Simulator" {
         .{ .src = @src(), .mem = "\xb3\x01", .reg = .bl, .val = 0x01,   .msg = "mov bl, 1" },
         .{ .src = @src(), .mem = "\x00\xd8", .reg = .al, .val = 0x02,   .msg = "add al, bl" },
         // memory to register add
-        .{ .src = @src(), .mem = "\xb8\x34\x12",     .reg = .ax, .val = 0x1234, .msg = "mov ax, 4660" },
-        .{ .src = @src(), .mem = "\xa3\x00\xf0",     .reg = .ax, .val = 0x1234, .msg = "mov [61440], ax" },
-        .{ .src = @src(), .mem = "\xbb\x01\x00",     .reg = .bx, .val = 0x0001, .msg = "mov bx, 1" },
-        .{ .src = @src(), .mem = "\xbe\xff\xef",     .reg = .si, .val = 0xefff, .msg = "mov si, 61439" },
-        .{ .src = @src(), .mem = "\x03\x18",         .reg = .bx, .val = 0x1235, .msg = "add bx, [bx + si]" },
+        .{ .src = @src(), .mem = "\xb8\x34\x12", .reg = .ax, .val = 0x1234, .msg = "mov ax, 4660" },
+        .{ .src = @src(), .mem = "\xa3\x00\xf0", .reg = .ax, .val = 0x1234, .msg = "mov [61440], ax" },
+        .{ .src = @src(), .mem = "\xbb\x01\x00", .reg = .bx, .val = 0x0001, .msg = "mov bx, 1" },
+        .{ .src = @src(), .mem = "\xbe\xff\xef", .reg = .si, .val = 0xefff, .msg = "mov si, 61439" },
+        .{ .src = @src(), .mem = "\x03\x18",     .reg = .bx, .val = 0x1235, .msg = "add bx, [bx + si]" },
         // setup and test
         .{ .src = @src(), .mem = "\xbd\x00\xf0",             .reg = .bp, .val = 0xf000, .msg = "mov bp, 61440" },
         .{ .src = @src(), .mem = "\xc7\x06\x00\xf0\x01\x00", .reg = .bp, .val = 0xf000, .msg = "mov [61440], word 1" },
@@ -1274,14 +1274,13 @@ test "8086.Simulator" {
         .{ .src = @src(), .mem = "\xb8\x00\x00",             .reg = .ax, .val = 0x0000, .msg = "mov ax, 0" },
         .{ .src = @src(), .mem = "\x03\x00",                 .reg = .ax, .val = 0xeff6, .msg = "add ax, [bx + si]" },
         // setup and test
-        .{ .src = @src(), .mem = "\xbd\x00\xf0",         .reg = .bp, .val = 0xf000, .msg = "mov bp, 61440" },
         .{ .src = @src(), .mem = "\xbb\x01\x00",         .reg = .bx, .val = 0x0001, .msg = "mov bx, 1" },
         .{ .src = @src(), .mem = "\xc7\x46\x00\x00\x00", .reg = .bx, .val = 0x0001, .msg = "mov [bp], word 0" },
         .{ .src = @src(), .mem = "\x01\x5e\x00",         .reg = .bx, .val = 0x0001, .msg = "add [bp], bx" },
         .{ .src = @src(), .mem = "\x01\x5e\x00",         .reg = .bx, .val = 0x0001, .msg = "add [bp], bx" },
         .{ .src = @src(), .mem = "\x01\x5e\x00",         .reg = .bx, .val = 0x0001, .msg = "add [bp], bx" },
+        .{ .src = @src(), .mem = "\x8b\x5e\x00",         .reg = .bx, .val = 0x0003, .msg = "mov bx, [bp]" },
         // setup and test
-        .{ .src = @src(), .mem = "\x8b\x5e\x00",             .reg = .bx, .val = 0x0003, .msg = "mov bx, [bp]" },
         .{ .src = @src(), .mem = "\xbb\xfe\xef",             .reg = .bx, .val = 0xeffe, .msg = "mov bx, 61438" },
         .{ .src = @src(), .mem = "\xc7\x06\x00\xf0\x07\x00", .reg = .bx, .val = 0xeffe, .msg = "mov [61440], word 7" },
         .{ .src = @src(), .mem = "\xb9\x01\x00",             .reg = .cx, .val = 0x0001, .msg = "mov cx, 1" },
@@ -1318,6 +1317,109 @@ test "8086.Simulator" {
         .{ .src = @src(), .mem = "\xbd\x00\xf0",             .reg = .bp, .val = 0xf000, .msg = "mov bp, 61440" },
         .{ .src = @src(), .mem = "\xc7\x06\x00\xf0\x01\x00", .reg = .bp, .val = 0xf000, .msg = "mov [61440], word 1" },
         .{ .src = @src(), .mem = "\x03\x46\x00",             .reg = .ax, .val = 0x0012, .msg = "add ax, [bp]" },
+        // sub tests
+        // simple registers sub
+        // setup and test
+        .{ .src = @src(), .mem = "\xb8\x01\x00", .reg = .ax, .val = 0x0001, .msg = "mov ax, 1" },
+        .{ .src = @src(), .mem = "\xbb\x01\x00", .reg = .bx, .val = 0x0001, .msg = "mov bx, 1" },
+        .{ .src = @src(), .mem = "\x29\xd8",     .reg = .ax, .val = 0x0000, .msg = "sub ax, bx" },
+        // setup and test
+        .{ .src = @src(), .mem = "\xb8\x00\xf0", .reg = .ax, .val = 0xf000, .msg = "mov ax, 61440" },
+        .{ .src = @src(), .mem = "\xbb\x00\x0f", .reg = .bx, .val = 0x0f00, .msg = "mov bx, 3840" },
+        .{ .src = @src(), .mem = "\x29\xd8",     .reg = .ax, .val = 0xe100, .msg = "sub ax, bx" },
+        // setup and test
+        .{ .src = @src(), .mem = "\xbe\x04\x00",     .reg = .si, .val = 0x0004, .msg = "mov si, 4" },
+        .{ .src = @src(), .mem = "\x83\xee\x01\x00", .reg = .si, .val = 0x0003, .msg = "sub si, 1" },
+        .{ .src = @src(), .mem = "\x83\xee\x02\x00", .reg = .si, .val = 0x0001, .msg = "sub si, 2" },
+        // setup and test
+        .{ .src = @src(), .mem = "\xb9\xff\xff",     .reg = .cx, .val = 0xffff, .msg = "mov cx, 65535" },
+        .{ .src = @src(), .mem = "\x83\xe9\x01\x00", .reg = .cx, .val = 0xfffe, .msg = "sub cx, 1" },
+        .{ .src = @src(), .mem = "\x83\xe9\xfe\x00", .reg = .cx, .val = 0xff00, .msg = "sub cx, -2" },
+        // half registers sub
+        .{ .src = @src(), .mem = "\xb0\x01", .reg = .al, .val = 0x01,   .msg = "mov al, 1" },
+        .{ .src = @src(), .mem = "\xb3\x01", .reg = .bl, .val = 0x01,   .msg = "mov bl, 1" },
+        .{ .src = @src(), .mem = "\x28\xd8", .reg = .al, .val = 0x00,   .msg = "sub al, bl" },
+        // memory to register sub
+        .{ .src = @src(), .mem = "\xbb\x01\x00",             .reg = .bx, .val = 0x0001, .msg = "mov bx, 1" },
+        .{ .src = @src(), .mem = "\xc7\x06\x00\xf0\x01\x00", .reg = .bx, .val = 0x0001, .msg = "mov [61440], word 1" },
+        .{ .src = @src(), .mem = "\xbe\xff\xef",             .reg = .si, .val = 0xefff, .msg = "mov si, 61439" },
+        .{ .src = @src(), .mem = "\x2b\x18",                 .reg = .bx, .val = 0x0000, .msg = "sub bx, [bx + si]" },
+        // setup and test
+        .{ .src = @src(), .mem = "\xbd\x00\xf0",             .reg = .bp, .val = 0xf000, .msg = "mov bp, 61440" },
+        .{ .src = @src(), .mem = "\xc7\x06\x00\xf0\x01\x00", .reg = .bp, .val = 0xf000, .msg = "mov [61440], word 1" },
+        .{ .src = @src(), .mem = "\xa1\x00\xf0",             .reg = .ax, .val = 0x0001, .msg = "mov ax, [61440]" },
+        .{ .src = @src(), .mem = "\xbb\x03\x00",             .reg = .bx, .val = 0x0003, .msg = "mov bx, 3" },
+        .{ .src = @src(), .mem = "\x2b\x5e\x00",             .reg = .bx, .val = 0x0002, .msg = "sub bx, [bp]" },
+        .{ .src = @src(), .mem = "\x2b\x5e\x00",             .reg = .bx, .val = 0x0001, .msg = "sub bx, [bp]" },
+        // memory with offset to register sub
+        .{ .src = @src(), .mem = "\xbb\xfe\xef",             .reg = .bx, .val = 0xeffe, .msg = "mov bx, 61438" },
+        .{ .src = @src(), .mem = "\xc7\x06\x00\xf0\x01\x00", .reg = .bp, .val = 0xf000, .msg = "mov [61440], word 1" },
+        .{ .src = @src(), .mem = "\xb9\x01\x00",             .reg = .cx, .val = 0x0001, .msg = "mov cx, 1" },
+        .{ .src = @src(), .mem = "\x2b\x4f\x02",             .reg = .cx, .val = 0x0000, .msg = "sub cx, [bx + 2]" },
+        // memory with effective address calculation and offset to register sub
+        .{ .src = @src(), .mem = "\xbd\xf6\xef",         .reg = .bp, .val = 0xeff6, .msg = "mov bp, 61430" },
+        .{ .src = @src(), .mem = "\xbe\x06\x00",         .reg = .si, .val = 0x0006, .msg = "mov si, 6" },
+        .{ .src = @src(), .mem = "\xc6\x06\x00\xf0\x01", .reg = .bp, .val = 0xeff6, .msg = "mov [61440], byte 1" },
+        .{ .src = @src(), .mem = "\xb7\x01",             .reg = .bh, .val = 0x01,   .msg = "mov bh, 1" },
+        .{ .src = @src(), .mem = "\x2a\x7a\x04",         .reg = .bh, .val = 0x00,   .msg = "sub bh, [bp + si + 4]" },
+        // setup and test
+        .{ .src = @src(), .mem = "\xbd\xf6\xef",             .reg = .bp, .val = 0xeff6, .msg = "mov bp, 61430" },
+        .{ .src = @src(), .mem = "\xbf\x04\x00",             .reg = .di, .val = 0x04,   .msg = "mov di, 4" },
+        .{ .src = @src(), .mem = "\xc7\x06\x00\xf0\x01\x00", .reg = .bp, .val = 0xeff6, .msg = "mov [61440], word 1" },
+        .{ .src = @src(), .mem = "\x2b\x7b\x06",             .reg = .di, .val = 0x0003, .msg = "sub di, [bp + di + 6]" },
+        // register to memory address sub
+        .{ .src = @src(), .mem = "\xbb\xf6\xef",             .reg = .bx, .val = 0xeff6, .msg = "mov bx, 61430" },
+        .{ .src = @src(), .mem = "\xbe\x0a\x00",             .reg = .si, .val = 0x000a, .msg = "mov si, 10" },
+        .{ .src = @src(), .mem = "\xc7\x06\x00\xf0\xf7\xef", .reg = .si, .val = 0x000a, .msg = "mov [61440], word 61431" },
+        .{ .src = @src(), .mem = "\x29\x18",                 .reg = .si, .val = 0x000a, .msg = "sub [bx + si], bx" },
+        .{ .src = @src(), .mem = "\xa1\x00\xf0",             .reg = .ax, .val = 0x0001, .msg = "mov ax, [61440]" },
+        .{ .src = @src(), .mem = "\xb8\x02\x00",             .reg = .ax, .val = 0x0002, .msg = "mov ax, 2" },
+        .{ .src = @src(), .mem = "\x2b\x00",                 .reg = .ax, .val = 0x0001, .msg = "sub ax, [bx + si]" },
+        // setup and test
+        .{ .src = @src(), .mem = "\xbd\x00\xf0",         .reg = .bp, .val = 0xf000, .msg = "mov bp, 61440" },
+        .{ .src = @src(), .mem = "\xbb\x01\x00",         .reg = .bx, .val = 0x0001, .msg = "mov bx, 1" },
+        .{ .src = @src(), .mem = "\xc7\x46\x00\x05\x00", .reg = .bx, .val = 0x0001, .msg = "mov [bp], word 5" },
+        .{ .src = @src(), .mem = "\x29\x5e\x00",         .reg = .bx, .val = 0x0001, .msg = "sub [bp], bx" },
+        .{ .src = @src(), .mem = "\x29\x5e\x00",         .reg = .bx, .val = 0x0001, .msg = "sub [bp], bx" },
+        .{ .src = @src(), .mem = "\x29\x5e\x00",         .reg = .bx, .val = 0x0001, .msg = "sub [bp], bx" },
+        .{ .src = @src(), .mem = "\x8b\x5e\x00",         .reg = .bx, .val = 0x0002, .msg = "mov bx, [bp]" },
+        // setup and test
+        .{ .src = @src(), .mem = "\xbb\xfe\xef",             .reg = .bx, .val = 0xeffe, .msg = "mov bx, 61438" },
+        .{ .src = @src(), .mem = "\xc7\x06\x00\xf0\x07\x00", .reg = .bx, .val = 0xeffe, .msg = "mov [61440], word 7" },
+        .{ .src = @src(), .mem = "\xb9\x01\x00",             .reg = .cx, .val = 0x0001, .msg = "mov cx, 1" },
+        .{ .src = @src(), .mem = "\x29\x4f\x02",             .reg = .cx, .val = 0x0001, .msg = "sub [bx + 2], cx" },
+        .{ .src = @src(), .mem = "\x8b\x4f\x02",             .reg = .cx, .val = 0x0006, .msg = "mov cx, [bx + 2]" },
+        // setup and test
+        .{ .src = @src(), .mem = "\xbd\xd8\xef",         .reg = .bp, .val = 0xefd8, .msg = "mov bp, 61400" },
+        .{ .src = @src(), .mem = "\xbe\x24\x00",         .reg = .si, .val = 0x0024, .msg = "mov si, 36" },
+        .{ .src = @src(), .mem = "\xc6\x06\x00\xf0\x08", .reg = .si, .val = 0x0024, .msg = "mov [61440], byte 8" },
+        .{ .src = @src(), .mem = "\xb7\x02",             .reg = .bh, .val = 0x02,   .msg = "mov bh, 2" },
+        .{ .src = @src(), .mem = "\x28\x7a\x04",         .reg = .bh, .val = 0x02,   .msg = "sub [bp + si + 4], bh" },
+        .{ .src = @src(), .mem = "\xb0\x00",             .reg = .al, .val = 0x00,   .msg = "mov al, 0" },
+        .{ .src = @src(), .mem = "\xa0\x00\xf0",         .reg = .al, .val = 0x06,   .msg = "mov al, [61440]" },
+        // setup and test
+        .{ .src = @src(), .mem = "\xb8\x00\x00",             .reg = .ax, .val = 0x0000, .msg = "mov ax, 0" },
+        .{ .src = @src(), .mem = "\xc7\x06\x00\xf0\x05\x00", .reg = .ax, .val = 0x0000, .msg = "mov [61440], word 5" },
+        .{ .src = @src(), .mem = "\xbd\xd8\xef",             .reg = .bp, .val = 0xefd8, .msg = "mov bp, 61400" },
+        .{ .src = @src(), .mem = "\xbf\x02\x00",             .reg = .di, .val = 0x0002, .msg = "mov di, 2" },
+        .{ .src = @src(), .mem = "\x29\x7b\x26",             .reg = .di, .val = 0x0002, .msg = "sub [bp + di + 38], di" },
+        .{ .src = @src(), .mem = "\xa1\x00\xf0",             .reg = .ax, .val = 0x0003, .msg = "mov ax, [61440]" },
+        // setup and test
+        .{ .src = @src(), .mem = "\xbb\x00\xf0",         .reg = .bx, .val = 0xf000, .msg = "mov bx, 61440" },
+        .{ .src = @src(), .mem = "\xc6\x06\x00\xf0\x28", .reg = .bx, .val = 0xf000, .msg = "mov [61440], byte 40" },
+        .{ .src = @src(), .mem = "\x80\x2f\x22",         .reg = .bx, .val = 0xf000, .msg = "sub [bx], byte 34" },
+        .{ .src = @src(), .mem = "\xa0\x00\xf0",         .reg = .al, .val = 0x06,   .msg = "mov al, [61440]" },
+        // setup and test
+        .{ .src = @src(), .mem = "\xbd\xf0\xeb",             .reg = .bp, .val = 0xebf0, .msg = "mov bp, 60400" },
+        .{ .src = @src(), .mem = "\xbe\x28\x00",             .reg = .si, .val = 0x0028, .msg = "mov si, 40" },
+        .{ .src = @src(), .mem = "\xc7\x06\x00\xf0\x1e\x00", .reg = .si, .val = 0x0028, .msg = "mov [61440], word 30" },
+        .{ .src = @src(), .mem = "\x83\xaa\xe8\x03\x1d\x00", .reg = .si, .val = 0x0028, .msg = "sub [bp + si + 1000], word 29" },
+        .{ .src = @src(), .mem = "\xa1\x00\xf0",             .reg = .ax, .val = 0x0001, .msg = "mov ax, [61440]" },
+        // setup and test
+        .{ .src = @src(), .mem = "\xb8\x11\x00",             .reg = .ax, .val = 0x0011, .msg = "mov ax, 17" },
+        .{ .src = @src(), .mem = "\xbd\x00\xf0",             .reg = .bp, .val = 0xf000, .msg = "mov bp, 61440" },
+        .{ .src = @src(), .mem = "\xc7\x06\x00\xf0\x01\x00", .reg = .bp, .val = 0xf000, .msg = "mov [61440], word 1" },
+        .{ .src = @src(), .mem = "\x2b\x46\x00",             .reg = .ax, .val = 0x0010, .msg = "sub ax, [bp]" },
     };
     var output_buffer: [1024*1024]u8 = undefined;
     var fbs = io.fixedBufferStream(&output_buffer);
