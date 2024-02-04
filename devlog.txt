@@ -153,3 +153,136 @@
     Niepotrzebnie się jednak męczyłem bo szukałem buga, którego nie było>
     Miałem błąd w testach.
 
+# 04.02.2024 (niedziela) Katowice
+    Nawet gdybym zaimplementował instrukcję cmp w symulatorze, to nie jestem
+    w stanie jej testować z moim obecnym prostym "frameworkiem" więc będę
+    musiał go trochę rozwinąć.  Najpierw jednak zaimplementuję samą instrukcję.
+    Trochę się naszukałem gdzie są potrzebne informacje w dokumentacji, więc
+    sobie je tutaj spisałem:
+
+    > page 51:
+    > CMP destination, source
+    >
+    > CMP (Compare) subtracts the source from the
+    > destination, which may be bytes or words, but
+    > does not return the result.  The operands are
+    > unchanged, but the flags are updated and can be
+    > tested by a subsequent conditional jump instruc-
+    > tion.  CMP updates AF, CF, OF, PF, SF and ZF.
+    > The comparison reflected in the flags is that of the
+    > destination to the source.  If a CMP instruction is
+    > followed by a JG (jump if greater) instruction, for
+    > example, the jump is taken if the destination
+    > operand is greater than the source operand.
+
+    > page 22:
+    > Flags
+    >
+    > The 8086 and 8088 have six 1-bit status flags
+    > (figure 2-9) that the EU posts to reflect certain
+    > properties of the result of an arithmetic or logic
+    >
+    >  _______________________________________________________
+    > |                                                       |
+    > |    CONTROL            STATUS                          |
+    > |    FLAGS              FLAGS                           |
+    > |    __|___      _________|________                     |
+    > |   /      \    /                  \                    |
+    > |  TF  DF  IF  OF  SF  ZF  AF  PF  CF                   |
+    > |   \   \   \   \   \   \   \   \   \_ carry            |
+    > |    \   \   \   \   \   \   \   \____ parity           |
+    > |     \   \   \   \   \   \   \_______ auxiliary carry  |
+    > |      \   \   \   \   \   \__________ zero             |
+    > |       \   \   \   \   \_____________ sign             |
+    > |        \   \   \   \________________ overflow         |
+    > |         \   \   \___________________ interrupt-enable |
+    > |          \   \______________________ direction        |
+    > |           \_________________________ trap             |
+    > |                                                       |
+    > |                                                       |
+    > |               Figure 2-9. Flags                       |
+    > |_______________________________________________________|
+    >
+    >
+    > operation.  A group of instructions is available
+    > that allows a program to alter its execution
+    > depending on the state of these flags, that is, on
+    > the result of a prior operation.  Different instruc-
+    > tions affect the status flags differently; in general,
+    > however, the flags reflect the following
+    > conditions:
+    >
+    > 1. If AF (the auxiliary carry flag) is set, there
+    >    has been a carry out of the low nibble into
+    >    the high nibble or a borrow from the high
+    >    nibble into the low nibble of an 8-bit quantity
+    >    (low-order byte of a 16-bit quantity).  This
+    >    flag is used by decimal arithmetic
+    >    instructions.
+    >
+    > 2. If CF (the carry flag) is set, there has been a
+    >    carry out of, or a borrow into, the high-order
+    >    bit of the result (8- or 16-bit).  The flag is used
+    >    by instructions that add and subtract
+    >    multibyte numbers.  Rotate instructions can
+    >    also isolate a bit in memory or a register by
+    >    placing it in the carry flag.
+    >
+    > 3. If OF(the overflow flag) is set, an arithmetic
+    >    overflow has occurred; that is, a significant
+    >    digit has been lost because of the size of the
+    >    result exceeded the capacity of its destination
+    >    location. An Interrupt On Overflow instruc-
+    >    tion is available that will generate an inter-
+    >    rupt in this situation.
+    >
+    > 4. If SF (the sign flag) is set, the high-order bit
+    >    of the result is a 1.  Since negative binary
+    >    numbers are represented in the 8086 and 8088
+    >    in standard two's complement notation, SF
+    >    indicates the sign of the result (0 = positive,
+    >    1 = negative).
+    >
+    > 5. If PF (the parity flag) is set, the result has
+    >    even parity, an even number of 1-bits.  This
+    >    flag can be used to check for data transmis-
+    >    sion errors.
+    >
+    > 6. If ZF (the zero flag) is set, the result of the
+    >    operation is 0.
+    >
+    > Three additional control flags (figure 2-9) can be
+    > set and cleared by programs to alter processor
+    > operations:
+    >
+    > 1. Setting DF (the direction flag) causes string
+    >    instructions to auto-decrement; that is, to
+    >    process strings from high addresses to low
+    >    addresses, or from "right to left."  Clearing
+    >    DF causes string instructions to auto-
+    >    increment, or to process strings from "left to
+    >    right."
+    >
+    > 2. Setting IF (the interrupt-enable flag) allows
+    >    the CPU to recognize external (maskable)
+    >    interrupt requests. C Clearing IF disables these
+    >    interrupts.  IF has no affect on either non-
+    >    maskable external or internally generated
+    >    interrupts.
+    >
+    > 3. Setting TF (the trap flag) puts the processor
+    >    into single-step mode for debugging.  In this
+    >    mode, the CPu automatically generates an
+    >    internal interrupt after each instruction,
+    >    allowing a program to be inspected as it exe-
+    >    cutes instruction by instruction.  Section 2.10
+    >    contains an example showing the use of TF in
+    >    a single-step and breakpoint routine.
+
+    > page 24:
+    >  _______________________  _______________________
+    > |  |  |  |  |  |  |  |  ||  |  |  |  |  |  |  |  |
+    > |  |  |  |  |OF|DF|IF|TF||SF|ZF|  |AF|  |PF|  |CF|  FLAGS
+    > |__|__|__|__|__|__|__|__||__|__|__|__|__|__|__|__|
+    >  15 14 13 12 11 10  9  8  7  6  5  4  3  2  1  0
+

@@ -467,14 +467,14 @@ const CPU8086 = struct {
         fn add(self: *@This(), dst: InstructionTarget, src: InstructionTarget, logger: anytype) !void {
             const src_value = try self.getSrcValue(dst, src, null,           logger); _ = try logger.write(", ");
             var   dst_value = try self.getSrcValue(dst, dst, src_value.wide, logger); _ = try logger.write(", ");
-            dst_value.val += src_value.val; // TODO: overflow
+            dst_value.val += src_value.val; // TODO: handle overflow
             try self.setDstValue(dst, dst_value, logger);
         }
 
         fn sub(self: *@This(), dst: InstructionTarget, src: InstructionTarget, logger: anytype) !void {
             const src_value = try self.getSrcValue(dst, src, null,           logger); _ = try logger.write(", ");
             var   dst_value = try self.getSrcValue(dst, dst, src_value.wide, logger); _ = try logger.write(", ");
-            dst_value.val -= src_value.val; // TODO: underflow
+            dst_value.val -= src_value.val; // TODO: handle underflow
             try self.setDstValue(dst, dst_value, logger);
         }
 
@@ -1420,6 +1420,31 @@ test "8086.Simulator" {
         .{ .src = @src(), .mem = "\xbd\x00\xf0",             .reg = .bp, .val = 0xf000, .msg = "mov bp, 61440" },
         .{ .src = @src(), .mem = "\xc7\x06\x00\xf0\x01\x00", .reg = .bp, .val = 0xf000, .msg = "mov [61440], word 1" },
         .{ .src = @src(), .mem = "\x2b\x46\x00",             .reg = .ax, .val = 0x0010, .msg = "sub ax, [bp]" },
+        // cmp tests
+        //.{ .src = @src(), .bytes = "\x3b\x18", .output = "cmp bx, [bx + si]" },
+        //.{ .src = @src(), .bytes = "\x3b\x5e\x00", .output = "cmp bx, [bp]" },
+        //.{ .src = @src(), .bytes = "\x83\xfe\x02\x00", .output = "cmp si, 2" },
+        //.{ .src = @src(), .bytes = "\x83\xfd\x02\x00", .output = "cmp bp, 2" },
+        //.{ .src = @src(), .bytes = "\x83\xf9\x08\x00", .output = "cmp cx, 8" },
+        //.{ .src = @src(), .bytes = "\x3b\x5e\x00", .output = "cmp bx, [bp]" },
+        //.{ .src = @src(), .bytes = "\x3b\x4f\x02", .output = "cmp cx, [bx + 2]" },
+        //.{ .src = @src(), .bytes = "\x3a\x7a\x04", .output = "cmp bh, [bp + si + 4]" },
+        //.{ .src = @src(), .bytes = "\x3b\x7b\x06", .output = "cmp di, [bp + di + 6]" },
+        //.{ .src = @src(), .bytes = "\x39\x18", .output = "cmp [bx + si], bx" },
+        //.{ .src = @src(), .bytes = "\x39\x5e\x00", .output = "cmp [bp], bx" },
+        //.{ .src = @src(), .bytes = "\x39\x5e\x00", .output = "cmp [bp], bx" },
+        //.{ .src = @src(), .bytes = "\x39\x4f\x02", .output = "cmp [bx + 2], cx" },
+        //.{ .src = @src(), .bytes = "\x38\x7a\x04", .output = "cmp [bp + si + 4], bh" },
+        //.{ .src = @src(), .bytes = "\x39\x7b\x06", .output = "cmp [bp + di + 6], di" },
+        //.{ .src = @src(), .bytes = "\x80\x3f\x22", .output = "cmp [bx], byte 34" },
+        //.{ .src = @src(), .bytes = "\x83\x3e\xe2\x12\x1d\x00", .output = "cmp [4834], word 29" },
+        //.{ .src = @src(), .bytes = "\x3b\x46\x00", .output = "cmp ax, [bp]" },
+        //.{ .src = @src(), .bytes = "\x3a\x00", .output = "cmp al, [bx + si]" },
+        //.{ .src = @src(), .bytes = "\x39\xd8", .output = "cmp ax, bx" },
+        //.{ .src = @src(), .bytes = "\x38\xe0", .output = "cmp al, ah" },
+        //.{ .src = @src(), .bytes = "\x3d\xe8\x03", .output = "cmp ax, 1000" },
+        //.{ .src = @src(), .bytes = "\x3c\xe2", .output = "cmp al, -30" },
+        //.{ .src = @src(), .bytes = "\x3c\x09", .output = "cmp al, 9" },
     };
     var output_buffer: [1024*1024]u8 = undefined;
     var fbs = io.fixedBufferStream(&output_buffer);
@@ -1429,8 +1454,7 @@ test "8086.Simulator" {
         // reset the buffer at the end of the loop
         defer fbs.reset();
         // print details on failure
-        errdefer debug.print("failed on test case {d} (line {d}): {s}\n",
-            .{index+1, test_case.src.line, test_case.msg});
+        errdefer debug.print("failed on test case {d} (line {d}): {s}\n", .{index+1, test_case.src.line, test_case.msg});
         // NOTE: change to just defer to have complete run output for debugging
         errdefer debug.print("{s}\n", .{output_buffer[0..fbs.pos]});
         // setup - we do not reset or override memory - only append to it
