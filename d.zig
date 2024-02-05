@@ -62,7 +62,7 @@ pub fn main() !void {
         // put "mov cl, 12" instruction into memory
         std.mem.copyForwards(u8, &simulator.memory, "\xB1\x0C");
         try simulator.run(stdout_file);
-        try simulator.setRegisterValue(.ah, 0x0011);
+        try simulator.setRegister(.ah, 0x0011);
         try simulator.printRegisters();
     }
     else { // decode
@@ -392,10 +392,23 @@ const CPU8086 = struct {
         memory:    [math.maxInt(u16)]u8,
         registers: [registers_count]u16,
         ip:        u16,
+        flags:     u16,
+
+        // NOTE: ony flags needed for cmp instruction
+        pub const Flag = enum(u4) { zf=6, sf=7, };
 
         const registers_count = 8+4; // 8 regular registers (abcd + sp, si, bp, di) and 4 segment registers (page 24)
 
-        pub fn getRegisterValue(self: @This(), register: Register) u16 {
+        pub fn getFlag(self: @This(), flag: Flag) bool {
+            return self.flags & (1<<@intFromEnum(flag)) == 1;
+        }
+
+        pub fn setFlag(self: *@This(), flag: Flag, value: bool) void {
+            if (value) { self.flags |=   @as(u16, 1)<<@intFromEnum(flag);  }
+            else       { self.flags &= ~(@as(u16, 1)<<@intFromEnum(flag)); }
+        }
+
+        pub fn getRegister(self: @This(), register: Register) u16 {
             return switch (register) {
                 .ah => (self.registers[0]&0xff00)>>8, .al => self.registers[0]&0x00ff, .ax => self.registers[0],
                 .bh => (self.registers[1]&0xff00)>>8, .bl => self.registers[1]&0x00ff, .bx => self.registers[1],
@@ -405,7 +418,7 @@ const CPU8086 = struct {
             };
         }
 
-        pub fn setRegisterValue(self: *@This(), register: Register, value: u16) !void {
+        pub fn setRegister(self: *@This(), register: Register, value: u16) !void {
             if (register.is8bit() and (value&0xff00!=0)) return error.nonZeroHighValueFor8bitRegister;
             return switch (register) {
                 .ah => self.registers[0]=(self.registers[0]&0x00ff)|(value<<8), .al => self.registers[0]=(self.registers[0]&0xff00)|value,
@@ -417,28 +430,28 @@ const CPU8086 = struct {
             };
         }
 
-        pub fn getSegmentRegisterValue(self: @This(), register: SegmentRegister) u16 {
+        pub fn getSegmentRegister(self: @This(), register: SegmentRegister) u16 {
             return self.registers[8+@as(u8, @intFromEnum(register))];
         }
 
-        pub fn setSegmentRegisterValue(self: *@This(), register: SegmentRegister, value: u16) void {
+        pub fn setSegmentRegister(self: *@This(), register: SegmentRegister, value: u16) void {
             self.registers[8+@as(u8, @intFromEnum(register))] = value;
         }
 
         pub fn printRegisters(self: @This()) !void {
             debug.print( "ip: 0x{x:0>4}\n", .{self.ip});
-            debug.print("{s}: 0x{x:0>4}  ", .{@tagName(Register.ax),        self.getRegisterValue(Register.ax)});
-            debug.print("{s}: 0x{x:0>4}  ", .{@tagName(Register.bx),        self.getRegisterValue(Register.bx)});
-            debug.print("{s}: 0x{x:0>4}  ", .{@tagName(Register.cx),        self.getRegisterValue(Register.cx)});
-            debug.print("{s}: 0x{x:0>4}\n", .{@tagName(Register.dx),        self.getRegisterValue(Register.dx)});
-            debug.print("{s}: 0x{x:0>4}  ", .{@tagName(Register.sp),        self.getRegisterValue(Register.sp)});
-            debug.print("{s}: 0x{x:0>4}  ", .{@tagName(Register.bp),        self.getRegisterValue(Register.bp)});
-            debug.print("{s}: 0x{x:0>4}  ", .{@tagName(Register.si),        self.getRegisterValue(Register.si)});
-            debug.print("{s}: 0x{x:0>4}\n", .{@tagName(Register.di),        self.getRegisterValue(Register.di)});
-            debug.print("{s}: 0x{x:0>4}  ", .{@tagName(SegmentRegister.es), self.getSegmentRegisterValue(SegmentRegister.es)});
-            debug.print("{s}: 0x{x:0>4}  ", .{@tagName(SegmentRegister.cs), self.getSegmentRegisterValue(SegmentRegister.cs)});
-            debug.print("{s}: 0x{x:0>4}  ", .{@tagName(SegmentRegister.ss), self.getSegmentRegisterValue(SegmentRegister.ss)});
-            debug.print("{s}: 0x{x:0>4}\n", .{@tagName(SegmentRegister.ds), self.getSegmentRegisterValue(SegmentRegister.ds)});
+            debug.print("{s}: 0x{x:0>4}  ", .{@tagName(Register.ax),        self.getRegister(Register.ax)});
+            debug.print("{s}: 0x{x:0>4}  ", .{@tagName(Register.bx),        self.getRegister(Register.bx)});
+            debug.print("{s}: 0x{x:0>4}  ", .{@tagName(Register.cx),        self.getRegister(Register.cx)});
+            debug.print("{s}: 0x{x:0>4}\n", .{@tagName(Register.dx),        self.getRegister(Register.dx)});
+            debug.print("{s}: 0x{x:0>4}  ", .{@tagName(Register.sp),        self.getRegister(Register.sp)});
+            debug.print("{s}: 0x{x:0>4}  ", .{@tagName(Register.bp),        self.getRegister(Register.bp)});
+            debug.print("{s}: 0x{x:0>4}  ", .{@tagName(Register.si),        self.getRegister(Register.si)});
+            debug.print("{s}: 0x{x:0>4}\n", .{@tagName(Register.di),        self.getRegister(Register.di)});
+            debug.print("{s}: 0x{x:0>4}  ", .{@tagName(SegmentRegister.es), self.getSegmentRegister(SegmentRegister.es)});
+            debug.print("{s}: 0x{x:0>4}  ", .{@tagName(SegmentRegister.cs), self.getSegmentRegister(SegmentRegister.cs)});
+            debug.print("{s}: 0x{x:0>4}  ", .{@tagName(SegmentRegister.ss), self.getSegmentRegister(SegmentRegister.ss)});
+            debug.print("{s}: 0x{x:0>4}\n", .{@tagName(SegmentRegister.ds), self.getSegmentRegister(SegmentRegister.ds)});
         }
 
         pub fn run(self: *@This(), logger: anytype) !void {
@@ -453,9 +466,8 @@ const CPU8086 = struct {
                         .mov => try self.mov(instruction.dst, instruction.src, logger),
                         .add => try self.add(instruction.dst, instruction.src, logger),
                         .sub => try self.sub(instruction.dst, instruction.src, logger),
-                        //.cmp => ,
+                        .cmp => try self.cmp(instruction.dst, instruction.src, logger),
                         .hlt => break,
-                        else => unreachable,
                     }
                     self.ip += instruction.size;
                 } else break;
@@ -464,24 +476,36 @@ const CPU8086 = struct {
             _ = try logger.write("\nsimulation end\n");
         }
 
-        fn add(self: *@This(), dst: InstructionTarget, src: InstructionTarget, logger: anytype) !void {
-            const src_value = try self.getSrcValue(dst, src, null,           logger); _ = try logger.write(", ");
-            var   dst_value = try self.getSrcValue(dst, dst, src_value.wide, logger); _ = try logger.write(", ");
-            dst_value.val += src_value.val; // TODO: handle overflow
-            try self.setDstValue(dst, dst_value, logger);
-        }
-
-        fn sub(self: *@This(), dst: InstructionTarget, src: InstructionTarget, logger: anytype) !void {
-            const src_value = try self.getSrcValue(dst, src, null,           logger); _ = try logger.write(", ");
-            var   dst_value = try self.getSrcValue(dst, dst, src_value.wide, logger); _ = try logger.write(", ");
-            dst_value.val -= src_value.val; // TODO: handle underflow
-            try self.setDstValue(dst, dst_value, logger);
-        }
-
         fn mov(self: *@This(), dst: InstructionTarget, src: InstructionTarget, logger: anytype) !void {
             const src_value = try self.getSrcValue(dst, src, null, logger);
             _ = try logger.write(", ");
             try self.setDstValue(dst, src_value, logger);
+        }
+
+        fn add(self: *@This(), dst: InstructionTarget, src: InstructionTarget, logger: anytype) !void {
+            const src_value = try self.getSrcValue(dst, src, null,           logger); _ = try logger.write(", ");
+            const dst_value = try self.getSrcValue(dst, dst, src_value.wide, logger); _ = try logger.write(", ");
+            const result = dst_value.val + src_value.val; // TODO: handle overflow
+            try self.setDstValue(dst, .{ .val = result, .wide = src_value.wide }, logger);
+            self.setFlag(.sf, result < 0);
+            self.setFlag(.zf, result == 0);
+        }
+
+        fn sub(self: *@This(), dst: InstructionTarget, src: InstructionTarget, logger: anytype) !void {
+            const src_value = try self.getSrcValue(dst, src, null,           logger); _ = try logger.write(", ");
+            const dst_value = try self.getSrcValue(dst, dst, src_value.wide, logger); _ = try logger.write(", ");
+            const result = dst_value.val - src_value.val; // TODO: handle underflow
+            try self.setDstValue(dst, .{ .val = result, .wide = src_value.wide }, logger);
+            self.setFlag(.sf, result < 0);
+            self.setFlag(.zf, result == 0);
+        }
+
+        fn cmp(self: *@This(), dst: InstructionTarget, src: InstructionTarget, logger: anytype) !void {
+            const src_value = try self.getSrcValue(dst, src, null,           logger); _ = try logger.write(", ");
+            const dst_value = try self.getSrcValue(dst, dst, src_value.wide, logger); _ = try logger.write(", ");
+            const diff = dst_value.val - src_value.val;
+            self.setFlag(.sf, diff < 0);
+            self.setFlag(.zf, diff == 0);
         }
 
         const Value = struct { val: u16, wide: bool, };
@@ -494,12 +518,12 @@ const CPU8086 = struct {
             if (wide) |w| v.wide = w;
             switch (src) {
                 .register => |i| {
-                    v.val  = self.getRegisterValue(i.register);
+                    v.val  = self.getRegister(i.register);
                     if (wide == null) v.wide = i.register.is8bit() == false;
                     try logger.print("register {s}", .{@tagName(i.register)});
                 },
                 .segment_register => |i| {
-                    v.val  = self.getSegmentRegisterValue(i.register);
+                    v.val  = self.getSegmentRegister(i.register);
                     if (wide == null) v.wide = true;
                     try logger.print("segment register {s}", .{@tagName(i.register)});
                 },
@@ -540,11 +564,11 @@ const CPU8086 = struct {
             _ = try logger.write("set ");
             switch (dst) {
                 .register => |i| {
-                    try self.setRegisterValue(i.register, v.val);
+                    try self.setRegister(i.register, v.val);
                     try logger.print("register {s}", .{@tagName(i.register)});
                 },
                 .segment_register => |i| {
-                    self.setSegmentRegisterValue(i.register, v.val);
+                    self.setSegmentRegister(i.register, v.val);
                     try logger.print("segment register {s}", .{@tagName(i.register)});
                 },
                 .address => |i| {
@@ -566,13 +590,13 @@ const CPU8086 = struct {
         }
 
         fn logAndAddRegisters(self: @This(), r1: Register, r2: Register, logger: anytype) !i32 {
-            const v1: i32 = @intCast(self.getRegisterValue(r1));
-            const v2: i32 = @intCast(self.getRegisterValue(r2));
+            const v1: i32 = @intCast(self.getRegister(r1));
+            const v2: i32 = @intCast(self.getRegister(r2));
             try logger.print("{d}+{d}", .{v1, v2});
             return v1 + v2;
         }
         fn logRegister(self: @This(), r: Register, logger: anytype) !i32 {
-            const v: i32 = @intCast(self.getRegisterValue(r));
+            const v: i32 = @intCast(self.getRegister(r));
             try logger.print("{d}", .{v});
             return v;
         }
@@ -1051,7 +1075,7 @@ test "8086.Simulator" {
     // check if by default everything is zeroed out
     inline for (@typeInfo(CPU8086.Register).Enum.fields) |field| {
         const reg: CPU8086.Register = @enumFromInt(field.value);
-        try testing.expectEqual(simulator.getRegisterValue(reg), 0x0000);
+        try testing.expectEqual(simulator.getRegister(reg), 0x0000);
     }
     try testing.expectEqual(simulator.ip, 0x0000);
     for (simulator.memory) |m| { try testing.expectEqual(m, 0x00); }
@@ -1063,15 +1087,15 @@ test "8086.Simulator" {
         if (vi == 0xf) vi = 1 else vi += 1;
         var v: u16 = 0; v += vi; v <<= 4; v+= vi;
         if (!reg.is8bit()) v = (v<<8)+v;
-        try simulator.setRegisterValue(reg, v);
-        try testing.expectEqual(simulator.getRegisterValue(reg), v);
+        try simulator.setRegister(reg, v);
+        try testing.expectEqual(simulator.getRegister(reg), v);
     }
     inline for (@typeInfo(CPU8086.SegmentRegister).Enum.fields) |field| {
         const reg: CPU8086.SegmentRegister = @enumFromInt(field.value);
         if (vi == 0xf) vi = 1 else vi += 1;
         var v: u16 = 0; v += vi; v <<= 4; v+= vi; v = (v<<8)+v;
-        simulator.setSegmentRegisterValue(reg, v);
-        try testing.expectEqual(simulator.getSegmentRegisterValue(reg), v);
+        simulator.setSegmentRegister(reg, v);
+        try testing.expectEqual(simulator.getSegmentRegister(reg), v);
     }
 
     // zero out our existing simulator by casting to bytes array and iterating over it
@@ -1462,6 +1486,6 @@ test "8086.Simulator" {
         simulator.memory[simulator.ip + test_case.mem.len] = 0xf4; // hlt at the end
         // run and validate
         try simulator.run(logger);
-        try testing.expectEqual(test_case.val, simulator.getRegisterValue(test_case.reg));
+        try testing.expectEqual(test_case.val, simulator.getRegister(test_case.reg));
     }
 }
