@@ -2,7 +2,6 @@
 const std     = @import("std");
 const io      = std.io;
 const fs      = std.fs;
-const mem     = std.mem;
 const fmt     = std.fmt;
 const math    = std.math;
 const meta    = std.meta;
@@ -21,18 +20,18 @@ pub fn main() !void {
     const args = try process.argsAlloc(allocator);
     defer process.argsFree(allocator, args);
 
-    //debug.print("args: {d}:\n  {s}\n", .{args.len, try mem.join(allocator, "\n  ", args)});
+    //debug.print("args: {d}:\n  {s}\n", .{args.len, try std.mem.join(allocator, "\n  ", args)});
     if (args.len < 2) return error.MissingPath;
     var simulate_option:  ?bool = null;
     var file_path_option: ?[]u8 = null;
     var ai: usize = 1; while ((simulate_option == null or file_path_option == null) and ai < args.len) : (ai+=1) {
-             if (mem.eql(u8, args[ai], "--simulate")) { simulate_option = true; }
-        else if (mem.startsWith(u8, args[ai], "-"))   { debug.print("Unrecognized option: '{s}'\n", .{args[ai]}); }
+             if (std.mem.eql(u8, args[ai], "--simulate")) { simulate_option = true; }
+        else if (std.mem.startsWith(u8, args[ai], "-"))   { debug.print("Unrecognized option: '{s}'\n", .{args[ai]}); }
         else                                          { file_path_option = args[ai]; }
     }
     const simulate  = simulate_option orelse false;
     const file_path = file_path_option orelse return error.MissingPath;
-    if (mem.endsWith(u8, fs.path.extension(file_path), ".asm")) return error.UnexpectedAsmExtension;
+    if (std.mem.endsWith(u8, fs.path.extension(file_path), ".asm")) return error.UnexpectedAsmExtension;
 
     // open file
     const cwd = try process.getCwdAlloc(allocator);
@@ -58,7 +57,7 @@ pub fn main() !void {
 
     if (simulate) {
         debug.print("simulating...\n", .{});
-        var simulator = mem.zeroes(CPU8086.Simulator);
+        var simulator = std.mem.zeroes(CPU8086.Simulator);
         // put "mov cl, 12" instruction into memory
         std.mem.copyForwards(u8, &simulator.memory, "\xB1\x0C");
         try simulator.run(stdout_file);
@@ -400,7 +399,7 @@ const CPU8086 = struct {
         const registers_count = 8+4; // 8 regular registers (abcd + sp, si, bp, di) and 4 segment registers (page 24)
 
         pub fn getFlag(self: @This(), flag: Flag) bool {
-            return self.flags & (1<<@intFromEnum(flag)) == 1;
+            return self.flags & (@as(u16, 1)<<@intFromEnum(flag)) == 1;
         }
 
         pub fn setFlag(self: *@This(), flag: Flag, value: bool) void {
@@ -696,7 +695,7 @@ const CPU8086 = struct {
         // the maximum number of fields in any instruction
         var max_fields: usize = 0;
         for (instruction_definitions_strings) |definition| {
-            var fields_iterator = mem.tokenize(u8, definition, instruction_definitions_separators);
+            var fields_iterator = std.mem.tokenize(u8, definition, instruction_definitions_separators);
             // skip type
             _ = fields_iterator.next().?;
             // count fields
@@ -739,7 +738,7 @@ const CPU8086 = struct {
         for (instruction_definitions_strings, 0..) |definition, i| {
             var parsed_definition: InstructionDefinition = undefined;
 
-            var fields_iterator = mem.tokenize(u8, definition, instruction_definitions_separators);
+            var fields_iterator = std.mem.tokenize(u8, definition, instruction_definitions_separators);
 
             // parse the type
             const instruction_type_string = fields_iterator.next().?;
@@ -972,7 +971,7 @@ test "8086.decode" {
         const output = output_buffer[0..fbs.pos];
 
         // compare
-        if (mem.eql(u8, test_case.output, output) == false) {
+        if (std.mem.eql(u8, test_case.output, output) == false) {
             failed_tests += 1;
             debug.print("test {d} (line {d}) failed, bytes: {x}, expected ({d}): '{s}', got({d}): '{s}'\n", .{
                 index+1,
@@ -1009,14 +1008,14 @@ test "8086.decode" {
         var total_output_len  : usize = 0;
 
         for (test_cases) |test_case| {
-            mem.copyForwards(u8, bytes, test_case.bytes);
+            std.mem.copyForwards(u8, bytes, test_case.bytes);
             bytes = bytes[test_case.bytes.len..];
             total_bytes_count += test_case.bytes.len;
 
-            mem.copyForwards(u8, expected_output, test_case.output);
+            std.mem.copyForwards(u8, expected_output, test_case.output);
             expected_output = expected_output[test_case.output.len..];
             total_output_len += test_case.output.len;
-            mem.copyForwards(u8, expected_output, "\n");
+            std.mem.copyForwards(u8, expected_output, "\n");
             expected_output = expected_output["\n".len..];
             total_output_len += "\n".len;
         }
@@ -1048,7 +1047,7 @@ test "8086.decode" {
 
         // compare and print output if any failed
         const output = fbs.getWritten();
-        if (mem.eql(u8, expected_output, output) == false) {
+        if (std.mem.eql(u8, expected_output, output) == false) {
             debug.print("combined test failed\n" ++
                 "expected ({d}):\n" ++
                 "-----------------------------n" ++
@@ -1105,345 +1104,336 @@ test "8086.Simulator" {
     for (0..simbytes.len)|i|{simbytes[i]=0;}
 
     // test instructions execution
-    const TestCase = struct {
-        mem: []const u8,       // input memory for the simulator
-        reg: CPU8086.Register, // the tested register
-        val: u16,              // expected value after simulation
-        msg: []const u8,       // what to print in case of failure
+    const TC = struct { // TestCase
         src: std.builtin.SourceLocation,
+
+        inst: ?struct { mem:  []const u8,             txt: []const u8, }, // execute instruction with an asm/text for printing
+        mem:  ?struct { addr: u16,                    val: []const u8  }, // test if memory addr has provided val
+        reg:  ?struct { reg:  CPU8086.Register,       val: u16         }, // test if given register has provided value
+        flag: ?struct { flag: CPU8086.Simulator.Flag, val: bool        }, // test if given flag has provided value
+
+        pub fn Init(src: std.builtin.SourceLocation) @This() { return .{ .src = src, .inst = null, .mem = null, .reg = null, .flag = null, }; }
+        pub fn Inst(tc: @This(), mem: []const u8,       txt: []const u8) @This() { var new = tc; new.inst = .{ .mem  = mem,  .txt = txt }; return new; }
+        pub fn Mem (tc: @This(), addr: u16,             val: []const u8) @This() { var new = tc; new.mem  = .{ .addr = addr, .val = val }; return new; }
+        pub fn Reg (tc: @This(), reg: CPU8086.Register, val: u16)        @This() { var new = tc; new.reg  = .{ .reg  = reg,  .val = val }; return new; }
+        pub fn Flag(tc: @This(), flag: CPU8086.Flag,    val: bool)       @This() { var new = tc; new.flag = .{ .flag = flag, .val = val }; return new; }
     };
-    const test_cases = [_]TestCase{
+    const test_cases = [_]TC{
         // 8-bit immediate-to-register
-        .{ .src = @src(), .mem = "\xb1\x0c", .reg = .cl, .val = 0x0c,   .msg = "mov cl, 12" },
-        .{ .src = @src(), .mem = "\xb5\xf4", .reg = .ch, .val = 0xf4,   .msg = "mov ch, -12" },
-        .{ .src = @src(), .mem = "",         .reg = .cx, .val = 0xf40c, .msg = "cx 0xf40c" },
+        TC.Init(@src()).Inst("\xb1\x0c", "mov cl, 12")  .Reg(.cl, 0x0c),
+        TC.Init(@src()).Inst("\xb5\xf4", "mov ch, -12") .Reg(.ch, 0xf4),
+        TC.Init(@src()).Reg(.cx, 0xf40c),
         // 16-bit immediate-to-register
-        .{ .src = @src(), .mem = "\xb9\x0c\x00", .reg = .cx, .val = 0x000c, .msg = "mov cx, 12" },
-        .{ .src = @src(), .mem = "\xb9\xf4\xff", .reg = .cx, .val = 0xfff4, .msg = "mov cx, -12" },
-        .{ .src = @src(), .mem = "\xba\x6c\x0f", .reg = .dx, .val = 0x0f6c, .msg = "mov dx, 3948" },
-        .{ .src = @src(), .mem = "\xba\x94\xf0", .reg = .dx, .val = 0xf094, .msg = "mov dx, -3948" },
+        TC.Init(@src()).Inst("\xb9\x0c\x00", "mov cx, 12")    .Reg(.cx, 0x000c),
+        TC.Init(@src()).Inst("\xb9\xf4\xff", "mov cx, -12")   .Reg(.cx, 0xfff4),
+        TC.Init(@src()).Inst("\xba\x6c\x0f", "mov dx, 3948")  .Reg(.dx, 0x0f6c),
+        TC.Init(@src()).Inst("\xba\x94\xf0", "mov dx, -3948") .Reg(.dx, 0xf094),
         // setup for next tests
-        .{ .src = @src(), .mem = "\xb8\x34\x12", .reg = .ax, .val = 0x1234, .msg = "mov ax, 4660" },
+        TC.Init(@src()).Inst("\xb8\x34\x12", "mov ax, 4660") .Reg(.ax, 0x1234),
         // basic register to register moves
-        .{ .src = @src(), .mem = "\x88\xc0", .reg = .al, .val = 0x34, .msg = "mov al, al" },
-        .{ .src = @src(), .mem = "\x88\xc1", .reg = .cl, .val = 0x34, .msg = "mov cl, al" },
-        .{ .src = @src(), .mem = "\x88\xc2", .reg = .dl, .val = 0x34, .msg = "mov dl, al" },
-        .{ .src = @src(), .mem = "\x88\xc3", .reg = .bl, .val = 0x34, .msg = "mov bl, al" },
-        .{ .src = @src(), .mem = "\x88\xc4", .reg = .ah, .val = 0x34, .msg = "mov ah, al" },
-        .{ .src = @src(), .mem = "\x88\xc5", .reg = .ch, .val = 0x34, .msg = "mov ch, al" },
-        .{ .src = @src(), .mem = "\x88\xc6", .reg = .dh, .val = 0x34, .msg = "mov dh, al" },
-        .{ .src = @src(), .mem = "\x88\xc7", .reg = .bh, .val = 0x34, .msg = "mov bh, al" },
+        TC.Init(@src()).Inst("\x88\xc0", "mov al, al") .Reg(.al, 0x34),
+        TC.Init(@src()).Inst("\x88\xc1", "mov cl, al") .Reg(.cl, 0x34),
+        TC.Init(@src()).Inst("\x88\xc2", "mov dl, al") .Reg(.dl, 0x34),
+        TC.Init(@src()).Inst("\x88\xc3", "mov bl, al") .Reg(.bl, 0x34),
+        TC.Init(@src()).Inst("\x88\xc4", "mov ah, al") .Reg(.ah, 0x34),
+        TC.Init(@src()).Inst("\x88\xc5", "mov ch, al") .Reg(.ch, 0x34),
+        TC.Init(@src()).Inst("\x88\xc6", "mov dh, al") .Reg(.dh, 0x34),
+        TC.Init(@src()).Inst("\x88\xc7", "mov bh, al") .Reg(.bh, 0x34),
         // reset register ax before continuing
-        .{ .src = @src(), .mem = "\xb8\x34\x12", .reg = .ax, .val = 0x1234, .msg = "mov ax, 4660" },
-        .{ .src = @src(), .mem = "\x89\xc0", .reg = .ax, .val = 0x1234, .msg = "mov ax, ax" },
-        .{ .src = @src(), .mem = "\x89\xc1", .reg = .cx, .val = 0x1234, .msg = "mov cx, ax" },
-        .{ .src = @src(), .mem = "\x89\xc2", .reg = .dx, .val = 0x1234, .msg = "mov dx, ax" },
-        .{ .src = @src(), .mem = "\x89\xc3", .reg = .bx, .val = 0x1234, .msg = "mov bx, ax" },
-        .{ .src = @src(), .mem = "\x89\xc4", .reg = .sp, .val = 0x1234, .msg = "mov sp, ax" },
-        .{ .src = @src(), .mem = "\x89\xc5", .reg = .bp, .val = 0x1234, .msg = "mov bp, ax" },
-        .{ .src = @src(), .mem = "\x89\xc6", .reg = .si, .val = 0x1234, .msg = "mov si, ax" },
-        .{ .src = @src(), .mem = "\x89\xc7", .reg = .di, .val = 0x1234, .msg = "mov di, ax" },
+        TC.Init(@src()).Inst("\xb8\x34\x12", "mov ax, 4660") .Reg(.ax, 0x1234),
+        TC.Init(@src()).Inst("\x89\xc0",     "mov ax, ax")   .Reg(.ax, 0x1234),
+        TC.Init(@src()).Inst("\x89\xc1",     "mov cx, ax")   .Reg(.cx, 0x1234),
+        TC.Init(@src()).Inst("\x89\xc2",     "mov dx, ax")   .Reg(.dx, 0x1234),
+        TC.Init(@src()).Inst("\x89\xc3",     "mov bx, ax")   .Reg(.bx, 0x1234),
+        TC.Init(@src()).Inst("\x89\xc4",     "mov sp, ax")   .Reg(.sp, 0x1234),
+        TC.Init(@src()).Inst("\x89\xc5",     "mov bp, ax")   .Reg(.bp, 0x1234),
+        TC.Init(@src()).Inst("\x89\xc6",     "mov si, ax")   .Reg(.si, 0x1234),
+        TC.Init(@src()).Inst("\x89\xc7",     "mov di, ax")   .Reg(.di, 0x1234),
         // Accumulator-to-memory test
-        .{ .src = @src(), .mem = "\xb8\x34\x12", .reg = .ax, .val = 0x1234, .msg = "mov ax, 4660" },
-        .{ .src = @src(), .mem = "\xa3\x00\xf0", .reg = .ax, .val = 0x1234, .msg = "mov [61440], ax" },
-        .{ .src = @src(), .mem = "\xb8\x00\x00", .reg = .ax, .val = 0x0000, .msg = "mov ax, 0" },
-        .{ .src = @src(), .mem = "\xa1\x00\xf0", .reg = .ax, .val = 0x1234, .msg = "mov ax, [61440]" },
-        .{ .src = @src(), .mem = "\xa3\x64\x00", .reg = .ax, .val = 0x1234, .msg = "mov [100], ax" },
-        .{ .src = @src(), .mem = "\xb8\x00\x00", .reg = .ax, .val = 0x0000, .msg = "mov ax, 0" },
-        .{ .src = @src(), .mem = "\xa1\x64\x00", .reg = .ax, .val = 0x1234, .msg = "mov ax, [100]" },
+        TC.Init(@src()).Inst("\xb8\x34\x12", "mov ax, 4660")    .Reg(.ax, 0x1234),
+        TC.Init(@src()).Inst("\xa3\x00\xf0", "mov [61440], ax") .Mem(61440, "\x12\x34"),
+        TC.Init(@src()).Inst("\xb8\x00\x00", "mov ax, 0")       .Reg(.ax, 0x0000),
+        TC.Init(@src()).Inst("\xa1\x00\xf0", "mov ax, [61440]") .Reg(.ax, 0x1234),
+        TC.Init(@src()).Inst("\xa3\x64\x00", "mov [100], ax")   .Mem(100, "\x12\x34"),
+        TC.Init(@src()).Inst("\xb8\x00\x00", "mov ax, 0")       .Reg(.ax, 0x0000),
+        TC.Init(@src()).Inst("\xa1\x64\x00", "mov ax, [100]")   .Reg(.ax, 0x1234),
         // Direct address
-        .{ .src = @src(), .mem = "\x8b\x2e\x64\x00", .reg = .bp, .val = 0x1234, .msg = "mov bp, [100]" },
-        .{ .src = @src(), .mem = "\x8b\x1e\x00\xf0", .reg = .bx, .val = 0x1234, .msg = "mov bx, [61440]" },
+        TC.Init(@src()).Inst("\x8b\x2e\x64\x00", "mov bp, [100]")   .Reg(.bp, 0x1234),
+        TC.Init(@src()).Inst("\x8b\x1e\x00\xf0", "mov bx, [61440]") .Reg(.bx, 0x1234),
         // setup for next tests
-        .{ .src = @src(), .mem = "\xb8\x34\x12", .reg = .ax, .val = 0x1234, .msg = "mov ax, 4660" },
-        .{ .src = @src(), .mem = "\xa3\x00\xf0", .reg = .ax, .val = 0x1234, .msg = "mov [61440], ax" },
-        .{ .src = @src(), .mem = "\xbb\xd8\xef", .reg = .bx, .val = 0xefd8, .msg = "mov bx, 61400" },
-        .{ .src = @src(), .mem = "\xbe\x28\x00", .reg = .si, .val = 0x0028, .msg = "mov si, 40" },
-        .{ .src = @src(), .mem = "\xbd\xd8\xef", .reg = .bx, .val = 0xefd8, .msg = "mov bp, 61400" },
-        .{ .src = @src(), .mem = "\xbf\x28\x00", .reg = .si, .val = 0x0028, .msg = "mov di, 40" },
-        .{ .src = @src(), .mem = "\xa3\xd8\xef", .reg = .ax, .val = 0x1234, .msg = "mov [61400], ax" },
+        TC.Init(@src()).Inst("\xb8\x34\x12", "mov ax, 4660")    .Reg(.ax, 0x1234),
+        TC.Init(@src()).Inst("\xa3\x00\xf0", "mov [61440], ax") .Mem (61440, "\x12\x34"),
+        TC.Init(@src()).Inst("\xbb\xd8\xef", "mov bx, 61400")   .Reg(.bx, 0xefd8),
+        TC.Init(@src()).Inst("\xbe\x28\x00", "mov si, 40")      .Reg(.si, 0x0028),
+        TC.Init(@src()).Inst("\xbd\xd8\xef", "mov bp, 61400")   .Reg(.bx, 0xefd8),
+        TC.Init(@src()).Inst("\xbf\x28\x00", "mov di, 40")      .Reg(.si, 0x0028),
+        TC.Init(@src()).Inst("\xa3\xd8\xef", "mov [61400], ax") .Mem(61400, "\x12\x34"),
         // Source address calculation
-        .{ .src = @src(), .mem = "\x8a\x00",     .reg = .al, .val = 0x12,   .msg = "mov al, [bx + si]" },
-        .{ .src = @src(), .mem = "\x8b\x1b",     .reg = .bx, .val = 0x1234, .msg = "mov bx, [bp + di]" },
-        .{ .src = @src(), .mem = "\x8b\x56\x00", .reg = .dx, .val = 0x1234, .msg = "mov dx, [bp]" },
+        TC.Init(@src()).Inst("\x8a\x00",     "mov al, [bx + si]") .Reg(.al, 0x12),
+        TC.Init(@src()).Inst("\x8b\x1b",     "mov bx, [bp + di]") .Reg(.bx, 0x1234),
+        TC.Init(@src()).Inst("\x8b\x56\x00", "mov dx, [bp]")      .Reg(.dx, 0x1234),
         // test source address calculation plus 8-bit displacement
-        .{ .src = @src(), .mem = "\xb8\x34\x12", .reg = .ax, .val = 0x1234, .msg = "mov ax, 4660" },
-        .{ .src = @src(), .mem = "\xa3\x08\xf0", .reg = .ax, .val = 0x1234, .msg = "mov [61448], ax" },
-        .{ .src = @src(), .mem = "\xbb\xd8\xef", .reg = .bx, .val = 0xefd8, .msg = "mov bx, 61400" },
-        .{ .src = @src(), .mem = "\xbe\x28\x00", .reg = .si, .val = 0x0028, .msg = "mov si, 40" },
-        .{ .src = @src(), .mem = "\x8a\x60\x08", .reg = .ah, .val = 0x12,   .msg = "mov ah, [bx + si + 8]" },
+        TC.Init(@src()).Inst("\xb8\x34\x12", "mov ax, 4660")          .Reg(.ax, 0x1234),
+        TC.Init(@src()).Inst("\xa3\x08\xf0", "mov [61448], ax")       .Mem(61448, "\x12\x34"),
+        TC.Init(@src()).Inst("\xbb\xd8\xef", "mov bx, 61400")         .Reg(.bx, 0xefd8),
+        TC.Init(@src()).Inst("\xbe\x28\x00", "mov si, 40")            .Reg(.si, 0x0028),
+        TC.Init(@src()).Inst("\x8a\x60\x08", "mov ah, [bx + si + 8]") .Reg(.ah, 0x12),
         // Source address calculation plus 16-bit displacement
-        .{ .src = @src(), .mem = "\xbb\xfa\xaf",     .reg = .bx, .val = 0xaffa, .msg = "mov bx, 45050" },
-        .{ .src = @src(), .mem = "\xbe\x06\x00",     .reg = .si, .val = 0x0006, .msg = "mov si, 6" },
-        .{ .src = @src(), .mem = "\x8a\x80\x00\x40", .reg = .al, .val = 0x12,   .msg = "mov al, [bx + si + 16384]" },
+        TC.Init(@src()).Inst("\xbb\xfa\xaf",     "mov bx, 45050")             .Reg(.bx, 0xaffa),
+        TC.Init(@src()).Inst("\xbe\x06\x00",     "mov si, 6")                 .Reg(.si, 0x0006),
+        TC.Init(@src()).Inst("\x8a\x80\x00\x40", "mov al, [bx + si + 16384]") .Reg(.al, 0x12),
         // Dest address calculation setup and tests
-        .{ .src = @src(), .mem = "\xbd\xd8\xef", .reg = .bp, .val = 0xefd8, .msg = "mov bp, 61400" },
-        .{ .src = @src(), .mem = "\xbb\xd8\xef", .reg = .bx, .val = 0xefd8, .msg = "mov bx, 61400" },
-        .{ .src = @src(), .mem = "\xbe\x28\x00", .reg = .si, .val = 0x0028, .msg = "mov si, 40" },
-        .{ .src = @src(), .mem = "\xbf\x28\x00", .reg = .di, .val = 0x0028, .msg = "mov di, 40" },
+        TC.Init(@src()).Inst("\xbd\xd8\xef", "mov bp, 61400") .Reg(.bp, 0xefd8),
+        TC.Init(@src()).Inst("\xbb\xd8\xef", "mov bx, 61400") .Reg(.bx, 0xefd8),
+        TC.Init(@src()).Inst("\xbe\x28\x00", "mov si, 40")    .Reg(.si, 0x0028),
+        TC.Init(@src()).Inst("\xbf\x28\x00", "mov di, 40")    .Reg(.di, 0x0028),
         // first test
-        .{ .src = @src(), .mem = "\xb8\x00\x00", .reg = .ax, .val = 0x0000, .msg = "mov ax, 0" },
-        .{ .src = @src(), .mem = "\xb9\x34\x12", .reg = .cx, .val = 0x1234, .msg = "mov cx, 0x1234" },
-        .{ .src = @src(), .mem = "\x89\x09",     .reg = .ax, .val = 0x0000, .msg = "mov [bx + di], cx" },
-        .{ .src = @src(), .mem = "\xa1\x00\xf0", .reg = .ax, .val = 0x1234, .msg = "mov ax, [61440]" },
+        TC.Init(@src()).Inst("\xb8\x00\x00", "mov ax, 0")         .Reg(.ax, 0x0000),
+        TC.Init(@src()).Inst("\xb9\x34\x12", "mov cx, 0x1234")    .Reg(.cx, 0x1234),
+        TC.Init(@src()).Inst("\x89\x09",     "mov [bx + di], cx") .Mem(61440, "\x12\x34"),
         // second test
-        .{ .src = @src(), .mem = "\xb8\x00\x00", .reg = .ax, .val = 0x0000, .msg = "mov ax, 0" },
-        .{ .src = @src(), .mem = "\xb1\x66",     .reg = .cl, .val = 0x66,   .msg = "mov cl, 0x66" },
-        .{ .src = @src(), .mem = "\x88\x0a",     .reg = .ax, .val = 0x0000, .msg = "mov [bp + si], cl" },
-        .{ .src = @src(), .mem = "\xa1\x00\xf0", .reg = .ax, .val = 0x6634, .msg = "mov ax, [61440]" },
+        TC.Init(@src()).Inst("\xb8\x00\x00", "mov ax, 0")         .Reg(.ax, 0x0000),
+        TC.Init(@src()).Inst("\xb1\x66",     "mov cl, 0x66")      .Reg(.cl, 0x66),
+        TC.Init(@src()).Inst("\x88\x0a",     "mov [bp + si], cl") .Mem(61440, "\x66\x34"),
         // third test
-        .{ .src = @src(), .mem = "\xb8\x00\x00", .reg = .ax, .val = 0x0000, .msg = "mov ax, 0" },
-        .{ .src = @src(), .mem = "\xb5\x77",     .reg = .ch, .val = 0x77,   .msg = "mov ch, 0x77" },
-        .{ .src = @src(), .mem = "\x88\x6e\x00", .reg = .ax, .val = 0x0000, .msg = "mov [bp], ch" },
-        .{ .src = @src(), .mem = "\xa1\xd8\xef", .reg = .ax, .val = 0x7734, .msg = "mov ax, [61400]" },
+        TC.Init(@src()).Inst("\xb8\x00\x00", "mov ax, 0")       .Reg(.ax, 0x0000),
+        TC.Init(@src()).Inst("\xb5\x77",     "mov ch, 0x77")    .Reg(.ch, 0x77),
+        TC.Init(@src()).Inst("\x88\x6e\x00", "mov [bp], ch")    .Mem(61400, "\x77\x34"),
         // Signed displacements setup and tests
         // first test
-        .{ .src = @src(), .mem = "\xb8\x34\x12", .reg = .ax, .val = 0x1234, .msg = "mov ax, 4660" },
-        .{ .src = @src(), .mem = "\xa3\x00\xf0", .reg = .ax, .val = 0x1234, .msg = "mov [61440], ax" },
-        .{ .src = @src(), .mem = "\xb8\x00\x00", .reg = .ax, .val = 0x0000, .msg = "mov ax, 0" },
-        .{ .src = @src(), .mem = "\xbb\xd8\xef", .reg = .bx, .val = 0xefd8, .msg = "mov bx, 61400" },
-        .{ .src = @src(), .mem = "\xbf\x50\x00", .reg = .di, .val = 0x0050, .msg = "mov di, 80" },
-        .{ .src = @src(), .mem = "\x8b\x41\xd8", .reg = .ax, .val = 0x1234, .msg = "mov ax, [bx + di - 40]" },
+        TC.Init(@src()).Inst("\xb8\x34\x12", "mov ax, 4660")           .Reg(.ax, 0x1234),
+        TC.Init(@src()).Inst("\xa3\x00\xf0", "mov [61440], ax")        .Mem(61440, "\x12\x34"),
+        TC.Init(@src()).Inst("\xb8\x00\x00", "mov ax, 0")              .Reg(.ax, 0x0000),
+        TC.Init(@src()).Inst("\xbb\xd8\xef", "mov bx, 61400")          .Reg(.bx, 0xefd8),
+        TC.Init(@src()).Inst("\xbf\x50\x00", "mov di, 80")             .Reg(.di, 0x0050),
+        TC.Init(@src()).Inst("\x8b\x41\xd8", "mov ax, [bx + di - 40]") .Reg(.ax, 0x1234),
         // second test
-        .{ .src = @src(), .mem = "\xb9\x34\x12",     .reg = .cx, .val = 0x1234, .msg = "mov cx, 4660" },
-        .{ .src = @src(), .mem = "\xbe\x28\xf0",     .reg = .si, .val = 0xf028, .msg = "mov si, 61480" },
-        .{ .src = @src(), .mem = "\x89\x4c\xd8",     .reg = .cx, .val = 0x1234, .msg = "mov [si - 40], cx" },
-        .{ .src = @src(), .mem = "\xb9\x00\x00",     .reg = .cx, .val = 0x0000, .msg = "mov cx, 0" },
-        .{ .src = @src(), .mem = "\x8b\x0e\x00\xf0", .reg = .cx, .val = 0x1234, .msg = "mov cx, [61440]" },
+        TC.Init(@src()).Inst("\xb9\x34\x12",     "mov cx, 4660")      .Reg(.cx, 0x1234),
+        TC.Init(@src()).Inst("\xbe\x28\xf0",     "mov si, 61480")     .Reg(.si, 0xf028),
+        TC.Init(@src()).Inst("\x89\x4c\xd8",     "mov [si - 40], cx") .Mem(61440, "\x12\x34"),
         // third test
-        .{ .src = @src(), .mem = "\xb8\x34\x12", .reg = .ax, .val = 0x1234, .msg = "mov ax, 4660" },
-        .{ .src = @src(), .mem = "\xa3\x00\xf0", .reg = .ax, .val = 0x1234, .msg = "mov [61440], ax" },
-        .{ .src = @src(), .mem = "\xbb\x28\xf0", .reg = .bx, .val = 0xf028, .msg = "mov bx, 61480" },
-        .{ .src = @src(), .mem = "\x8b\x57\xd8", .reg = .dx, .val = 0x1234, .msg = "mov dx, [bx - 40]" },
+        TC.Init(@src()).Inst("\xb8\x34\x12", "mov ax, 4660")      .Reg(.ax, 0x1234),
+        TC.Init(@src()).Inst("\xa3\x00\xf0", "mov [61440], ax")   .Mem(61440, "\x12\x34"),
+        TC.Init(@src()).Inst("\xbb\x28\xf0", "mov bx, 61480")     .Reg(.bx, 0xf028),
+        TC.Init(@src()).Inst("\x8b\x57\xd8", "mov dx, [bx - 40]") .Reg(.dx, 0x1234),
         // Explicit sizes setup and tests
         // first test
-        .{ .src = @src(), .mem = "\xbd\xd8\xef",     .reg = .bp, .val = 0xefd8, .msg = "mov bp, 61400" },
-        .{ .src = @src(), .mem = "\xbf\x28\x00",     .reg = .di, .val = 0x0028, .msg = "mov di, 40" },
-        .{ .src = @src(), .mem = "\xb0\x00",         .reg = .al, .val = 0x00,   .msg = "mov al, 0" },
-        .{ .src = @src(), .mem = "\xc6\x03\x07",     .reg = .al, .val = 0x00,   .msg = "mov [bp + di], byte 7" },
-        .{ .src = @src(), .mem = "\xa0\x00\xf0",     .reg = .al, .val = 0x07,   .msg = "mov al, [61440]" },
-        .{ .src = @src(), .mem = "\x8a\x26\x00\xf0", .reg = .ah, .val = 0x07,   .msg = "mov ah, [61440]" },
+        TC.Init(@src()).Inst("\xbd\xd8\xef",     "mov bp, 61400")         .Reg(.bp, 0xefd8),
+        TC.Init(@src()).Inst("\xbf\x28\x00",     "mov di, 40")            .Reg(.di, 0x0028),
+        TC.Init(@src()).Inst("\xb0\x00",         "mov al, 0")             .Reg(.al, 0x00),
+        TC.Init(@src()).Inst("\xc6\x03\x07",     "mov [bp + di], byte 7") .Mem(61440, "\x07"),
+        TC.Init(@src()).Inst("\xa0\x00\xf0",     "mov al, [61440]")       .Reg(.al, 0x07),
+        TC.Init(@src()).Inst("\x8a\x26\x00\xf0", "mov ah, [61440]")       .Reg(.ah, 0x07),
         // second test
-        .{ .src = @src(), .mem = "\xbf\xd8\xef",         .reg = .di, .val = 0xefd8, .msg = "mov di, 61400" },
-        .{ .src = @src(), .mem = "\xb8\x00\x00",         .reg = .ax, .val = 0x0000, .msg = "mov ax, 0" },
-        .{ .src = @src(), .mem = "\xc7\x45\x28\x34\x12", .reg = .ax, .val = 0x0000, .msg = "mov [di + 40], word 4660" },
-        .{ .src = @src(), .mem = "\xa1\x00\xf0",         .reg = .ax, .val = 0x1234, .msg = "mov ax, [61440]" },
+        TC.Init(@src()).Inst("\xbf\xd8\xef",         "mov di, 61400")            .Reg(.di, 0xefd8),
+        TC.Init(@src()).Inst("\xb8\x00\x00",         "mov ax, 0")                .Reg(.ax, 0x0000),
+        TC.Init(@src()).Inst("\xc7\x45\x28\x34\x12", "mov [di + 40], word 4660") .Mem(61440, "\x12\x34"),
         // Accumulator-to-memory test
-        .{ .src = @src(), .mem = "\xb8\x34\x12",     .reg = .ax, .val = 0x1234, .msg = "mov ax, 4660" },
-        .{ .src = @src(), .mem = "\xa3\xfa\x09",     .reg = .ax, .val = 0x1234, .msg = "mov [2554], ax" },
-        .{ .src = @src(), .mem = "\xbb\x00\x00",     .reg = .bx, .val = 0x0000, .msg = "mov bx, 0" },
-        .{ .src = @src(), .mem = "\x8b\x1e\xfa\x09", .reg = .bx, .val = 0x1234, .msg = "mov bx, [2554]" },
-        .{ .src = @src(), .mem = "\xa3\x0f\x00",     .reg = .ax, .val = 0x1234, .msg = "mov [15], ax" },
-        .{ .src = @src(), .mem = "\xbb\x00\x00",     .reg = .bx, .val = 0x0000, .msg = "mov bx, 0" },
-        .{ .src = @src(), .mem = "\x8b\x1e\x0f\x00", .reg = .bx, .val = 0x1234, .msg = "mov bx, [15]" },
+        TC.Init(@src()).Inst("\xb8\x34\x12",     "mov ax, 4660")   .Reg(.ax, 0x1234),
+        TC.Init(@src()).Inst("\xa3\xfa\x09",     "mov [2554], ax") .Mem(2554, "\x12\x34"),
+        TC.Init(@src()).Inst("\xbb\x00\x00",     "mov bx, 0")      .Reg(.bx, 0x0000),
+        TC.Init(@src()).Inst("\x8b\x1e\xfa\x09", "mov bx, [2554]") .Reg(.bx, 0x1234),
+        TC.Init(@src()).Inst("\xa3\x0f\x00",     "mov [15], ax")   .Mem(15, "\x12\x34"),
         // add tests
         // simple registers add
         // setup and test
-        .{ .src = @src(), .mem = "\xb8\x01\x00", .reg = .ax, .val = 0x0001, .msg = "mov ax, 1" },
-        .{ .src = @src(), .mem = "\xbb\x01\x00", .reg = .bx, .val = 0x0001, .msg = "mov bx, 1" },
-        .{ .src = @src(), .mem = "\x01\xd8",     .reg = .ax, .val = 0x0002, .msg = "add ax, bx" },
+        TC.Init(@src()).Inst("\xb8\x01\x00", "mov ax, 1")  .Reg(.ax, 0x0001),
+        TC.Init(@src()).Inst("\xbb\x01\x00", "mov bx, 1")  .Reg(.bx, 0x0001),
+        TC.Init(@src()).Inst("\x01\xd8",     "add ax, bx") .Reg(.ax, 0x0002),
         // setup and test
-        .{ .src = @src(), .mem = "\xb8\x00\xf0", .reg = .ax, .val = 0xf000, .msg = "mov ax, 61440" },
-        .{ .src = @src(), .mem = "\xbb\x00\x0f", .reg = .bx, .val = 0x0f00, .msg = "mov bx, 3840" },
-        .{ .src = @src(), .mem = "\x01\xd8",     .reg = .ax, .val = 0xff00, .msg = "add ax, bx" },
+        TC.Init(@src()).Inst("\xb8\x00\xf0", "mov ax, 61440") .Reg(.ax, 0xf000),
+        TC.Init(@src()).Inst("\xbb\x00\x0f", "mov bx, 3840")  .Reg(.bx, 0x0f00),
+        TC.Init(@src()).Inst("\x01\xd8",     "add ax, bx")    .Reg(.ax, 0xff00),
         // setup and test
-        .{ .src = @src(), .mem = "\xbe\x01\x00",     .reg = .si, .val = 0x0001, .msg = "mov si, 1" },
-        .{ .src = @src(), .mem = "\x83\xc6\x01\x00", .reg = .si, .val = 0x0002, .msg = "add si, 1" },
-        .{ .src = @src(), .mem = "\x83\xc6\x02\x00", .reg = .si, .val = 0x0004, .msg = "add si, 2" },
+        TC.Init(@src()).Inst("\xbe\x01\x00",     "mov si, 1") .Reg(.si, 0x0001),
+        TC.Init(@src()).Inst("\x83\xc6\x01\x00", "add si, 1") .Reg(.si, 0x0002),
+        TC.Init(@src()).Inst("\x83\xc6\x02\x00", "add si, 2") .Reg(.si, 0x0004),
         // setup and test
-        .{ .src = @src(), .mem = "\xbd\x01\x00",     .reg = .bp, .val = 0x0001, .msg = "mov bp, 1" },
-        .{ .src = @src(), .mem = "\x83\xc5\x02\x00", .reg = .bp, .val = 0x0003, .msg = "add bp, 2" },
+        TC.Init(@src()).Inst("\xbd\x01\x00",     "mov bp, 1") .Reg(.bp, 0x0001),
+        TC.Init(@src()).Inst("\x83\xc5\x02\x00", "add bp, 2") .Reg(.bp, 0x0003),
         // setup and test
-        .{ .src = @src(), .mem = "\xb9\x01\x00",     .reg = .cx, .val = 0x0001, .msg = "mov cx, 1" },
-        .{ .src = @src(), .mem = "\x83\xc1\x08\x00", .reg = .cx, .val = 0x0009, .msg = "add cx, 8" },
-        .{ .src = @src(), .mem = "\x83\xc1\xfe\x00", .reg = .cx, .val = 0x0107, .msg = "add cx, -2" },
+        TC.Init(@src()).Inst("\xb9\x01\x00",     "mov cx, 1")  .Reg(.cx, 0x0001),
+        TC.Init(@src()).Inst("\x83\xc1\x08\x00", "add cx, 8")  .Reg(.cx, 0x0009),
+        TC.Init(@src()).Inst("\x83\xc1\xfe\x00", "add cx, -2") .Reg(.cx, 0x0107),
         // half registers add
-        .{ .src = @src(), .mem = "\xb0\x01", .reg = .al, .val = 0x01,   .msg = "mov al, 1" },
-        .{ .src = @src(), .mem = "\xb3\x01", .reg = .bl, .val = 0x01,   .msg = "mov bl, 1" },
-        .{ .src = @src(), .mem = "\x00\xd8", .reg = .al, .val = 0x02,   .msg = "add al, bl" },
+        TC.Init(@src()).Inst("\xb0\x01", "mov al, 1")  .Reg(.al, 0x01),
+        TC.Init(@src()).Inst("\xb3\x01", "mov bl, 1")  .Reg(.bl, 0x01),
+        TC.Init(@src()).Inst("\x00\xd8", "add al, bl") .Reg(.al, 0x02),
         // memory to register add
-        .{ .src = @src(), .mem = "\xb8\x34\x12", .reg = .ax, .val = 0x1234, .msg = "mov ax, 4660" },
-        .{ .src = @src(), .mem = "\xa3\x00\xf0", .reg = .ax, .val = 0x1234, .msg = "mov [61440], ax" },
-        .{ .src = @src(), .mem = "\xbb\x01\x00", .reg = .bx, .val = 0x0001, .msg = "mov bx, 1" },
-        .{ .src = @src(), .mem = "\xbe\xff\xef", .reg = .si, .val = 0xefff, .msg = "mov si, 61439" },
-        .{ .src = @src(), .mem = "\x03\x18",     .reg = .bx, .val = 0x1235, .msg = "add bx, [bx + si]" },
+        TC.Init(@src()).Inst("\xb8\x34\x12", "mov ax, 4660")      .Reg(.ax, 0x1234),
+        TC.Init(@src()).Inst("\xa3\x00\xf0", "mov [61440], ax")   .Mem(61440, "\x12\x34"),
+        TC.Init(@src()).Inst("\xbb\x01\x00", "mov bx, 1")         .Reg(.bx, 0x0001),
+        TC.Init(@src()).Inst("\xbe\xff\xef", "mov si, 61439")     .Reg(.si, 0xefff),
+        TC.Init(@src()).Inst("\x03\x18",     "add bx, [bx + si]") .Reg(.bx, 0x1235),
         // setup and test
-        .{ .src = @src(), .mem = "\xbd\x00\xf0",             .reg = .bp, .val = 0xf000, .msg = "mov bp, 61440" },
-        .{ .src = @src(), .mem = "\xc7\x06\x00\xf0\x01\x00", .reg = .bp, .val = 0xf000, .msg = "mov [61440], word 1" },
-        .{ .src = @src(), .mem = "\xa1\x00\xf0",             .reg = .ax, .val = 0x0001, .msg = "mov ax, [61440]" },
-        .{ .src = @src(), .mem = "\xbb\x00\x00",             .reg = .bx, .val = 0x0000, .msg = "mov bx, 0" },
-        .{ .src = @src(), .mem = "\x03\x5e\x00",             .reg = .bx, .val = 0x0001, .msg = "add bx, [bp]" },
-        .{ .src = @src(), .mem = "\x03\x5e\x00",             .reg = .bx, .val = 0x0002, .msg = "add bx, [bp]" },
+        TC.Init(@src()).Inst("\xbd\x00\xf0",             "mov bp, 61440")       .Reg(.bp, 0xf000),
+        TC.Init(@src()).Inst("\xc7\x06\x00\xf0\x01\x00", "mov [61440], word 1") .Mem(61440, "\x00\x01"),
+        TC.Init(@src()).Inst("\xbb\x00\x00",             "mov bx, 0")           .Reg(.bx, 0x0000),
+        TC.Init(@src()).Inst("\x03\x5e\x00",             "add bx, [bp]")        .Reg(.bx, 0x0001),
+        TC.Init(@src()).Inst("\x03\x5e\x00",             "add bx, [bp]")        .Reg(.bx, 0x0002),
         // memory with offset to register add
-        .{ .src = @src(), .mem = "\xbb\xfe\xef",             .reg = .bx, .val = 0xeffe, .msg = "mov bx, 61438" },
-        .{ .src = @src(), .mem = "\xc7\x06\x00\xf0\x01\x00", .reg = .bp, .val = 0xf000, .msg = "mov [61440], word 1" },
-        .{ .src = @src(), .mem = "\xb9\x01\x00",             .reg = .cx, .val = 0x0001, .msg = "mov cx, 1" },
-        .{ .src = @src(), .mem = "\x03\x4f\x02",             .reg = .cx, .val = 0x0002, .msg = "add cx, [bx + 2]" },
+        TC.Init(@src()).Inst("\xbb\xfe\xef",             "mov bx, 61438")       .Reg(.bx, 0xeffe),
+        TC.Init(@src()).Inst("\xc7\x06\x00\xf0\x01\x00", "mov [61440], word 1") .Mem(61440, "\x00\x01"),
+        TC.Init(@src()).Inst("\xb9\x01\x00",             "mov cx, 1")           .Reg(.cx, 0x0001),
+        TC.Init(@src()).Inst("\x03\x4f\x02",             "add cx, [bx + 2]")    .Reg(.cx, 0x0002),
         // memory with effective address calculation and offset to register add
-        .{ .src = @src(), .mem = "\xbd\xf6\xef",         .reg = .bp, .val = 0xeff6, .msg = "mov bp, 61430" },
-        .{ .src = @src(), .mem = "\xbe\x06\x00",         .reg = .si, .val = 0x0006, .msg = "mov si, 6" },
-        .{ .src = @src(), .mem = "\xc6\x06\x00\xf0\x01", .reg = .bp, .val = 0xeff6, .msg = "mov [61440], byte 1" },
-        .{ .src = @src(), .mem = "\xb7\x01",             .reg = .bh, .val = 0x01,   .msg = "mov bh, 1" },
-        .{ .src = @src(), .mem = "\x02\x7a\x04",         .reg = .bh, .val = 0x02,   .msg = "add bh, [bp + si + 4]" },
+        TC.Init(@src()).Inst("\xbd\xf6\xef",         "mov bp, 61430")         .Reg(.bp, 0xeff6),
+        TC.Init(@src()).Inst("\xbe\x06\x00",         "mov si, 6")             .Reg(.si, 0x0006),
+        TC.Init(@src()).Inst("\xc6\x06\x00\xf0\x01", "mov [61440], byte 1")   .Mem(61440, "\x01"),
+        TC.Init(@src()).Inst("\xb7\x01",             "mov bh, 1")             .Reg(.bh, 0x01),
+        TC.Init(@src()).Inst("\x02\x7a\x04",         "add bh, [bp + si + 4]") .Reg(.bh, 0x02),
         // setup and test
-        .{ .src = @src(), .mem = "\xbd\xf6\xef",             .reg = .bp, .val = 0xeff6, .msg = "mov bp, 61430" },
-        .{ .src = @src(), .mem = "\xbf\x04\x00",             .reg = .di, .val = 0x04,   .msg = "mov di, 4" },
-        .{ .src = @src(), .mem = "\xc7\x06\x00\xf0\x01\x00", .reg = .bp, .val = 0xeff6, .msg = "mov [61440], word 1" },
-        .{ .src = @src(), .mem = "\x03\x7b\x06",             .reg = .di, .val = 0x0005, .msg = "add di, [bp + di + 6]" },
+        TC.Init(@src()).Inst("\xbd\xf6\xef",             "mov bp, 61430")         .Reg(.bp, 0xeff6),
+        TC.Init(@src()).Inst("\xbf\x04\x00",             "mov di, 4")             .Reg(.di, 0x04),
+        TC.Init(@src()).Inst("\xc7\x06\x00\xf0\x01\x00", "mov [61440], word 1")   .Mem(61440, "\x00\x01"),
+        TC.Init(@src()).Inst("\x03\x7b\x06",             "add di, [bp + di + 6]") .Reg(.di, 0x0005),
         // register to memory address add
-        .{ .src = @src(), .mem = "\xbb\xf6\xef",             .reg = .bx, .val = 0xeff6, .msg = "mov bx, 61430" },
-        .{ .src = @src(), .mem = "\xbe\x0a\x00",             .reg = .si, .val = 0x000a, .msg = "mov si, 10" },
-        .{ .src = @src(), .mem = "\xc7\x06\x00\xf0\x00\x00", .reg = .si, .val = 0x000a, .msg = "mov [61440], word 0" },
-        .{ .src = @src(), .mem = "\x01\x18",                 .reg = .si, .val = 0x000a, .msg = "add [bx + si], bx" },
-        .{ .src = @src(), .mem = "\xb8\x00\x00",             .reg = .ax, .val = 0x0000, .msg = "mov ax, 0" },
-        .{ .src = @src(), .mem = "\x03\x00",                 .reg = .ax, .val = 0xeff6, .msg = "add ax, [bx + si]" },
+        TC.Init(@src()).Inst("\xbb\xf6\xef",             "mov bx, 61430")       .Reg(.bx, 0xeff6),
+        TC.Init(@src()).Inst("\xbe\x0a\x00",             "mov si, 10")          .Reg(.si, 0x000a),
+        TC.Init(@src()).Inst("\xc7\x06\x00\xf0\x00\x00", "mov [61440], word 0") .Mem(61440, "\x00\x00"),
+        TC.Init(@src()).Inst("\x01\x18",                 "add [bx + si], bx")   .Reg(.si, 0x000a),
+        TC.Init(@src()).Inst("\xb8\x00\x00",             "mov ax, 0")           .Reg(.ax, 0x0000),
+        TC.Init(@src()).Inst("\x03\x00",                 "add ax, [bx + si]")   .Reg(.ax, 0xeff6),
         // setup and test
-        .{ .src = @src(), .mem = "\xbb\x01\x00",         .reg = .bx, .val = 0x0001, .msg = "mov bx, 1" },
-        .{ .src = @src(), .mem = "\xc7\x46\x00\x00\x00", .reg = .bx, .val = 0x0001, .msg = "mov [bp], word 0" },
-        .{ .src = @src(), .mem = "\x01\x5e\x00",         .reg = .bx, .val = 0x0001, .msg = "add [bp], bx" },
-        .{ .src = @src(), .mem = "\x01\x5e\x00",         .reg = .bx, .val = 0x0001, .msg = "add [bp], bx" },
-        .{ .src = @src(), .mem = "\x01\x5e\x00",         .reg = .bx, .val = 0x0001, .msg = "add [bp], bx" },
-        .{ .src = @src(), .mem = "\x8b\x5e\x00",         .reg = .bx, .val = 0x0003, .msg = "mov bx, [bp]" },
+        TC.Init(@src()).Inst("\xbb\x01\x00",         "mov bx, 1")        .Reg(.bx, 0x0001),
+        TC.Init(@src()).Inst("\xbd\xf6\xef",         "mov bp, 61430")    .Reg(.bp, 0xeff6),
+        TC.Init(@src()).Inst("\xc7\x46\x00\x00\x00", "mov [bp], word 0") .Mem(61430, "\x00\x00"),
+        TC.Init(@src()).Inst("\x01\x5e\x00",         "add [bp], bx")     .Mem(61430, "\x00\x01"),
+        TC.Init(@src()).Inst("\x01\x5e\x00",         "add [bp], bx")     .Mem(61430, "\x00\x02"),
+        TC.Init(@src()).Inst("\x01\x5e\x00",         "add [bp], bx")     .Mem(61430, "\x00\x03"),
         // setup and test
-        .{ .src = @src(), .mem = "\xbb\xfe\xef",             .reg = .bx, .val = 0xeffe, .msg = "mov bx, 61438" },
-        .{ .src = @src(), .mem = "\xc7\x06\x00\xf0\x07\x00", .reg = .bx, .val = 0xeffe, .msg = "mov [61440], word 7" },
-        .{ .src = @src(), .mem = "\xb9\x01\x00",             .reg = .cx, .val = 0x0001, .msg = "mov cx, 1" },
-        .{ .src = @src(), .mem = "\x01\x4f\x02",             .reg = .cx, .val = 0x0001, .msg = "add [bx + 2], cx" },
-        .{ .src = @src(), .mem = "\x8b\x4f\x02",             .reg = .cx, .val = 0x0008, .msg = "mov cx, [bx + 2]" },
+        TC.Init(@src()).Inst("\xbb\xfe\xef",             "mov bx, 61438")       .Reg(.bx, 0xeffe),
+        TC.Init(@src()).Inst("\xc7\x06\x00\xf0\x07\x00", "mov [61440], word 7") .Mem(61440, "\x00\x07"),
+        TC.Init(@src()).Inst("\xb9\x01\x00",             "mov cx, 1")           .Reg(.cx, 0x0001),
+        TC.Init(@src()).Inst("\x01\x4f\x02",             "add [bx + 2], cx")    .Mem(61440, "\x00\x08"),
         // setup and test
-        .{ .src = @src(), .mem = "\xbd\xd8\xef",         .reg = .bp, .val = 0xefd8, .msg = "mov bp, 61400" },
-        .{ .src = @src(), .mem = "\xbe\x24\x00",         .reg = .si, .val = 0x0024, .msg = "mov si, 36" },
-        .{ .src = @src(), .mem = "\xc6\x06\x00\xf0\x08", .reg = .si, .val = 0x0024, .msg = "mov [61440], byte 8" },
-        .{ .src = @src(), .mem = "\xb7\x02",             .reg = .bh, .val = 0x02,   .msg = "mov bh, 2" },
-        .{ .src = @src(), .mem = "\x00\x7a\x04",         .reg = .bh, .val = 0x02,   .msg = "add [bp + si + 4], bh" },
-        .{ .src = @src(), .mem = "\xb0\x00",             .reg = .al, .val = 0x00,   .msg = "mov al, 0" },
-        .{ .src = @src(), .mem = "\xa0\x00\xf0",         .reg = .al, .val = 0x0a,   .msg = "mov al, [61440]" },
+        TC.Init(@src()).Inst("\xbd\xd8\xef",         "mov bp, 61400")         .Reg(.bp, 0xefd8),
+        TC.Init(@src()).Inst("\xbe\x24\x00",         "mov si, 36")            .Reg(.si, 0x0024),
+        TC.Init(@src()).Inst("\xc6\x06\x00\xf0\x08", "mov [61440], byte 8")   .Mem(61440, "\x08"),
+        TC.Init(@src()).Inst("\xb7\x02",             "mov bh, 2")             .Reg(.bh, 0x02),
+        TC.Init(@src()).Inst("\x00\x7a\x04",         "add [bp + si + 4], bh") .Mem(61440, "\x0a"),
         // setup and test
-        .{ .src = @src(), .mem = "\xb8\x00\x00",             .reg = .ax, .val = 0x0000, .msg = "mov ax, 0" },
-        .{ .src = @src(), .mem = "\xc7\x06\x00\xf0\x05\x00", .reg = .ax, .val = 0x0000, .msg = "mov [61440], word 5" },
-        .{ .src = @src(), .mem = "\xbd\xd8\xef",             .reg = .bp, .val = 0xefd8, .msg = "mov bp, 61400" },
-        .{ .src = @src(), .mem = "\xbf\x22\x00",             .reg = .di, .val = 0x0022, .msg = "mov di, 34" },
-        .{ .src = @src(), .mem = "\x01\x7b\x06",             .reg = .di, .val = 0x0022, .msg = "add [bp + di + 6], di" },
-        .{ .src = @src(), .mem = "\xa1\x00\xf0",             .reg = .ax, .val = 0x0027, .msg = "mov ax, [61440]" },
+        TC.Init(@src()).Inst("\xc7\x06\x00\xf0\x05\x00", "mov [61440], word 5")   .Mem(61440, "\x00\x05"),
+        TC.Init(@src()).Inst("\xbd\xd8\xef",             "mov bp, 61400")         .Reg(.bp, 0xefd8),
+        TC.Init(@src()).Inst("\xbf\x22\x00",             "mov di, 34")            .Reg(.di, 0x0022),
+        TC.Init(@src()).Inst("\x01\x7b\x06",             "add [bp + di + 6], di") .Mem(61440, "\x00\x27"),
         // setup and test
-        .{ .src = @src(), .mem = "\xbb\x00\xf0",         .reg = .bx, .val = 0xf000, .msg = "mov bx, 61440" },
-        .{ .src = @src(), .mem = "\xc6\x06\x00\xf0\x06", .reg = .bx, .val = 0xf000, .msg = "mov [61440], byte 6" },
-        .{ .src = @src(), .mem = "\x80\x07\x22",         .reg = .bx, .val = 0xf000, .msg = "add [bx], byte 34" },
-        .{ .src = @src(), .mem = "\xa0\x00\xf0",         .reg = .al, .val = 0x28,   .msg = "mov al, [61440]" },
+        TC.Init(@src()).Inst("\xbb\x00\xf0",         "mov bx, 61440")       .Reg(.bx, 0xf000),
+        TC.Init(@src()).Inst("\xc6\x06\x00\xf0\x06", "mov [61440], byte 6") .Mem(61440, "\x06"),
+        TC.Init(@src()).Inst("\x80\x07\x22",         "add [bx], byte 34")   .Mem(61440, "\x28"),
         // setup and test
-        .{ .src = @src(), .mem = "\xbd\xf0\xeb",             .reg = .bp, .val = 0xebf0, .msg = "mov bp, 60400" },
-        .{ .src = @src(), .mem = "\xbe\x28\x00",             .reg = .si, .val = 0x0028, .msg = "mov si, 40" },
-        .{ .src = @src(), .mem = "\xc7\x06\x00\xf0\x06\x00", .reg = .si, .val = 0x0028, .msg = "mov [61440], word 6" },
-        .{ .src = @src(), .mem = "\x83\x82\xe8\x03\x1d\x00", .reg = .si, .val = 0x0028, .msg = "add [bp + si + 1000], word 29" },
-        .{ .src = @src(), .mem = "\xa1\x00\xf0",             .reg = .ax, .val = 0x0023, .msg = "mov ax, [61440]" },
+        TC.Init(@src()).Inst("\xbd\xf0\xeb",             "mov bp, 60400")                 .Reg(.bp, 0xebf0),
+        TC.Init(@src()).Inst("\xbe\x28\x00",             "mov si, 40")                    .Reg(.si, 0x0028),
+        TC.Init(@src()).Inst("\xc7\x06\x00\xf0\x06\x00", "mov [61440], word 6")           .Mem(61440, "\x00\x06"),
+        TC.Init(@src()).Inst("\x83\x82\xe8\x03\x1d\x00", "add [bp + si + 1000], word 29") .Mem(61440, "\x00\x23"),
         // setup and test
-        .{ .src = @src(), .mem = "\xb8\x11\x00",             .reg = .ax, .val = 0x0011, .msg = "mov ax, 17" },
-        .{ .src = @src(), .mem = "\xbd\x00\xf0",             .reg = .bp, .val = 0xf000, .msg = "mov bp, 61440" },
-        .{ .src = @src(), .mem = "\xc7\x06\x00\xf0\x01\x00", .reg = .bp, .val = 0xf000, .msg = "mov [61440], word 1" },
-        .{ .src = @src(), .mem = "\x03\x46\x00",             .reg = .ax, .val = 0x0012, .msg = "add ax, [bp]" },
+        TC.Init(@src()).Inst("\xb8\x11\x00",             "mov ax, 17")          .Reg(.ax, 0x0011),
+        TC.Init(@src()).Inst("\xbd\x00\xf0",             "mov bp, 61440")       .Reg(.bp, 0xf000),
+        TC.Init(@src()).Inst("\xc7\x06\x00\xf0\x01\x00", "mov [61440], word 1") .Mem(61440, "\x00\x01"),
+        TC.Init(@src()).Inst("\x03\x46\x00",             "add ax, [bp]")        .Reg(.ax, 0x0012),
         // sub tests
         // simple registers sub
         // setup and test
-        .{ .src = @src(), .mem = "\xb8\x01\x00", .reg = .ax, .val = 0x0001, .msg = "mov ax, 1" },
-        .{ .src = @src(), .mem = "\xbb\x01\x00", .reg = .bx, .val = 0x0001, .msg = "mov bx, 1" },
-        .{ .src = @src(), .mem = "\x29\xd8",     .reg = .ax, .val = 0x0000, .msg = "sub ax, bx" },
+        TC.Init(@src()).Inst("\xb8\x01\x00", "mov ax, 1")  .Reg(.ax, 0x0001),
+        TC.Init(@src()).Inst("\xbb\x01\x00", "mov bx, 1")  .Reg(.bx, 0x0001),
+        TC.Init(@src()).Inst("\x29\xd8",     "sub ax, bx") .Reg(.ax, 0x0000),
         // setup and test
-        .{ .src = @src(), .mem = "\xb8\x00\xf0", .reg = .ax, .val = 0xf000, .msg = "mov ax, 61440" },
-        .{ .src = @src(), .mem = "\xbb\x00\x0f", .reg = .bx, .val = 0x0f00, .msg = "mov bx, 3840" },
-        .{ .src = @src(), .mem = "\x29\xd8",     .reg = .ax, .val = 0xe100, .msg = "sub ax, bx" },
+        TC.Init(@src()).Inst("\xb8\x00\xf0", "mov ax, 61440") .Reg(.ax, 0xf000),
+        TC.Init(@src()).Inst("\xbb\x00\x0f", "mov bx, 3840")  .Reg(.bx, 0x0f00),
+        TC.Init(@src()).Inst("\x29\xd8",     "sub ax, bx")    .Reg(.ax, 0xe100),
         // setup and test
-        .{ .src = @src(), .mem = "\xbe\x04\x00",     .reg = .si, .val = 0x0004, .msg = "mov si, 4" },
-        .{ .src = @src(), .mem = "\x83\xee\x01\x00", .reg = .si, .val = 0x0003, .msg = "sub si, 1" },
-        .{ .src = @src(), .mem = "\x83\xee\x02\x00", .reg = .si, .val = 0x0001, .msg = "sub si, 2" },
+        TC.Init(@src()).Inst("\xbe\x04\x00",     "mov si, 4") .Reg(.si, 0x0004),
+        TC.Init(@src()).Inst("\x83\xee\x01\x00", "sub si, 1") .Reg(.si, 0x0003),
+        TC.Init(@src()).Inst("\x83\xee\x02\x00", "sub si, 2") .Reg(.si, 0x0001),
         // setup and test
-        .{ .src = @src(), .mem = "\xb9\xff\xff",     .reg = .cx, .val = 0xffff, .msg = "mov cx, 65535" },
-        .{ .src = @src(), .mem = "\x83\xe9\x01\x00", .reg = .cx, .val = 0xfffe, .msg = "sub cx, 1" },
-        .{ .src = @src(), .mem = "\x83\xe9\xfe\x00", .reg = .cx, .val = 0xff00, .msg = "sub cx, -2" },
+        TC.Init(@src()).Inst("\xb9\xff\xff",     "mov cx, 65535") .Reg(.cx, 0xffff),
+        TC.Init(@src()).Inst("\x83\xe9\x01\x00", "sub cx, 1")     .Reg(.cx, 0xfffe),
+        TC.Init(@src()).Inst("\x83\xe9\xfe\x00", "sub cx, -2")    .Reg(.cx, 0xff00),
         // half registers sub
-        .{ .src = @src(), .mem = "\xb0\x01", .reg = .al, .val = 0x01,   .msg = "mov al, 1" },
-        .{ .src = @src(), .mem = "\xb3\x01", .reg = .bl, .val = 0x01,   .msg = "mov bl, 1" },
-        .{ .src = @src(), .mem = "\x28\xd8", .reg = .al, .val = 0x00,   .msg = "sub al, bl" },
+        TC.Init(@src()).Inst("\xb0\x01", "mov al, 1")  .Reg(.al, 0x01),
+        TC.Init(@src()).Inst("\xb3\x01", "mov bl, 1")  .Reg(.bl, 0x01),
+        TC.Init(@src()).Inst("\x28\xd8", "sub al, bl") .Reg(.al, 0x00),
         // memory to register sub
-        .{ .src = @src(), .mem = "\xbb\x01\x00",             .reg = .bx, .val = 0x0001, .msg = "mov bx, 1" },
-        .{ .src = @src(), .mem = "\xc7\x06\x00\xf0\x01\x00", .reg = .bx, .val = 0x0001, .msg = "mov [61440], word 1" },
-        .{ .src = @src(), .mem = "\xbe\xff\xef",             .reg = .si, .val = 0xefff, .msg = "mov si, 61439" },
-        .{ .src = @src(), .mem = "\x2b\x18",                 .reg = .bx, .val = 0x0000, .msg = "sub bx, [bx + si]" },
+        TC.Init(@src()).Inst("\xbb\x01\x00",             "mov bx, 1")           .Reg(.bx, 0x0001),
+        TC.Init(@src()).Inst("\xc7\x06\x00\xf0\x01\x00", "mov [61440], word 1") .Reg(.bx, 0x0001),
+        TC.Init(@src()).Inst("\xbe\xff\xef",             "mov si, 61439")       .Reg(.si, 0xefff),
+        TC.Init(@src()).Inst("\x2b\x18",                 "sub bx, [bx + si]")   .Reg(.bx, 0x0000),
         // setup and test
-        .{ .src = @src(), .mem = "\xbd\x00\xf0",             .reg = .bp, .val = 0xf000, .msg = "mov bp, 61440" },
-        .{ .src = @src(), .mem = "\xc7\x06\x00\xf0\x01\x00", .reg = .bp, .val = 0xf000, .msg = "mov [61440], word 1" },
-        .{ .src = @src(), .mem = "\xa1\x00\xf0",             .reg = .ax, .val = 0x0001, .msg = "mov ax, [61440]" },
-        .{ .src = @src(), .mem = "\xbb\x03\x00",             .reg = .bx, .val = 0x0003, .msg = "mov bx, 3" },
-        .{ .src = @src(), .mem = "\x2b\x5e\x00",             .reg = .bx, .val = 0x0002, .msg = "sub bx, [bp]" },
-        .{ .src = @src(), .mem = "\x2b\x5e\x00",             .reg = .bx, .val = 0x0001, .msg = "sub bx, [bp]" },
+        TC.Init(@src()).Inst("\xbd\x00\xf0",             "mov bp, 61440")       .Reg(.bp, 0xf000),
+        TC.Init(@src()).Inst("\xc7\x06\x00\xf0\x01\x00", "mov [61440], word 1") .Reg(.bp, 0xf000),
+        TC.Init(@src()).Inst("\xa1\x00\xf0",             "mov ax, [61440]")     .Reg(.ax, 0x0001),
+        TC.Init(@src()).Inst("\xbb\x03\x00",             "mov bx, 3")           .Reg(.bx, 0x0003),
+        TC.Init(@src()).Inst("\x2b\x5e\x00",             "sub bx, [bp]")        .Reg(.bx, 0x0002),
+        TC.Init(@src()).Inst("\x2b\x5e\x00",             "sub bx, [bp]")        .Reg(.bx, 0x0001),
         // memory with offset to register sub
-        .{ .src = @src(), .mem = "\xbb\xfe\xef",             .reg = .bx, .val = 0xeffe, .msg = "mov bx, 61438" },
-        .{ .src = @src(), .mem = "\xc7\x06\x00\xf0\x01\x00", .reg = .bp, .val = 0xf000, .msg = "mov [61440], word 1" },
-        .{ .src = @src(), .mem = "\xb9\x01\x00",             .reg = .cx, .val = 0x0001, .msg = "mov cx, 1" },
-        .{ .src = @src(), .mem = "\x2b\x4f\x02",             .reg = .cx, .val = 0x0000, .msg = "sub cx, [bx + 2]" },
+        TC.Init(@src()).Inst("\xbb\xfe\xef",             "mov bx, 61438")       .Reg(.bx, 0xeffe),
+        TC.Init(@src()).Inst("\xc7\x06\x00\xf0\x01\x00", "mov [61440], word 1") .Reg(.bp, 0xf000),
+        TC.Init(@src()).Inst("\xb9\x01\x00",             "mov cx, 1")           .Reg(.cx, 0x0001),
+        TC.Init(@src()).Inst("\x2b\x4f\x02",             "sub cx, [bx + 2]")    .Reg(.cx, 0x0000),
         // memory with effective address calculation and offset to register sub
-        .{ .src = @src(), .mem = "\xbd\xf6\xef",         .reg = .bp, .val = 0xeff6, .msg = "mov bp, 61430" },
-        .{ .src = @src(), .mem = "\xbe\x06\x00",         .reg = .si, .val = 0x0006, .msg = "mov si, 6" },
-        .{ .src = @src(), .mem = "\xc6\x06\x00\xf0\x01", .reg = .bp, .val = 0xeff6, .msg = "mov [61440], byte 1" },
-        .{ .src = @src(), .mem = "\xb7\x01",             .reg = .bh, .val = 0x01,   .msg = "mov bh, 1" },
-        .{ .src = @src(), .mem = "\x2a\x7a\x04",         .reg = .bh, .val = 0x00,   .msg = "sub bh, [bp + si + 4]" },
+        TC.Init(@src()).Inst("\xbd\xf6\xef",         "mov bp, 61430")         .Reg(.bp, 0xeff6),
+        TC.Init(@src()).Inst("\xbe\x06\x00",         "mov si, 6")             .Reg(.si, 0x0006),
+        TC.Init(@src()).Inst("\xc6\x06\x00\xf0\x01", "mov [61440], byte 1")   .Reg(.bp, 0xeff6),
+        TC.Init(@src()).Inst("\xb7\x01",             "mov bh, 1")             .Reg(.bh, 0x01),
+        TC.Init(@src()).Inst("\x2a\x7a\x04",         "sub bh, [bp + si + 4]") .Reg(.bh, 0x00),
         // setup and test
-        .{ .src = @src(), .mem = "\xbd\xf6\xef",             .reg = .bp, .val = 0xeff6, .msg = "mov bp, 61430" },
-        .{ .src = @src(), .mem = "\xbf\x04\x00",             .reg = .di, .val = 0x04,   .msg = "mov di, 4" },
-        .{ .src = @src(), .mem = "\xc7\x06\x00\xf0\x01\x00", .reg = .bp, .val = 0xeff6, .msg = "mov [61440], word 1" },
-        .{ .src = @src(), .mem = "\x2b\x7b\x06",             .reg = .di, .val = 0x0003, .msg = "sub di, [bp + di + 6]" },
+        TC.Init(@src()).Inst("\xbd\xf6\xef",             "mov bp, 61430")         .Reg(.bp, 0xeff6),
+        TC.Init(@src()).Inst("\xbf\x04\x00",             "mov di, 4")             .Reg(.di, 0x04),
+        TC.Init(@src()).Inst("\xc7\x06\x00\xf0\x01\x00", "mov [61440], word 1")   .Reg(.bp, 0xeff6),
+        TC.Init(@src()).Inst("\x2b\x7b\x06",             "sub di, [bp + di + 6]") .Reg(.di, 0x0003),
         // register to memory address sub
-        .{ .src = @src(), .mem = "\xbb\xf6\xef",             .reg = .bx, .val = 0xeff6, .msg = "mov bx, 61430" },
-        .{ .src = @src(), .mem = "\xbe\x0a\x00",             .reg = .si, .val = 0x000a, .msg = "mov si, 10" },
-        .{ .src = @src(), .mem = "\xc7\x06\x00\xf0\xf7\xef", .reg = .si, .val = 0x000a, .msg = "mov [61440], word 61431" },
-        .{ .src = @src(), .mem = "\x29\x18",                 .reg = .si, .val = 0x000a, .msg = "sub [bx + si], bx" },
-        .{ .src = @src(), .mem = "\xa1\x00\xf0",             .reg = .ax, .val = 0x0001, .msg = "mov ax, [61440]" },
-        .{ .src = @src(), .mem = "\xb8\x02\x00",             .reg = .ax, .val = 0x0002, .msg = "mov ax, 2" },
-        .{ .src = @src(), .mem = "\x2b\x00",                 .reg = .ax, .val = 0x0001, .msg = "sub ax, [bx + si]" },
+        TC.Init(@src()).Inst("\xbb\xf6\xef",             "mov bx, 61430")           .Reg(.bx, 0xeff6),
+        TC.Init(@src()).Inst("\xbe\x0a\x00",             "mov si, 10")              .Reg(.si, 0x000a),
+        TC.Init(@src()).Inst("\xc7\x06\x00\xf0\xf7\xef", "mov [61440], word 61431") .Reg(.si, 0x000a),
+        TC.Init(@src()).Inst("\x29\x18",                 "sub [bx + si], bx")       .Reg(.si, 0x000a),
+        TC.Init(@src()).Inst("\xa1\x00\xf0",             "mov ax, [61440]")         .Reg(.ax, 0x0001),
+        TC.Init(@src()).Inst("\xb8\x02\x00",             "mov ax, 2")               .Reg(.ax, 0x0002),
+        TC.Init(@src()).Inst("\x2b\x00",                 "sub ax, [bx + si]")       .Reg(.ax, 0x0001),
         // setup and test
-        .{ .src = @src(), .mem = "\xbd\x00\xf0",         .reg = .bp, .val = 0xf000, .msg = "mov bp, 61440" },
-        .{ .src = @src(), .mem = "\xbb\x01\x00",         .reg = .bx, .val = 0x0001, .msg = "mov bx, 1" },
-        .{ .src = @src(), .mem = "\xc7\x46\x00\x05\x00", .reg = .bx, .val = 0x0001, .msg = "mov [bp], word 5" },
-        .{ .src = @src(), .mem = "\x29\x5e\x00",         .reg = .bx, .val = 0x0001, .msg = "sub [bp], bx" },
-        .{ .src = @src(), .mem = "\x29\x5e\x00",         .reg = .bx, .val = 0x0001, .msg = "sub [bp], bx" },
-        .{ .src = @src(), .mem = "\x29\x5e\x00",         .reg = .bx, .val = 0x0001, .msg = "sub [bp], bx" },
-        .{ .src = @src(), .mem = "\x8b\x5e\x00",         .reg = .bx, .val = 0x0002, .msg = "mov bx, [bp]" },
+        TC.Init(@src()).Inst("\xbd\x00\xf0",         "mov bp, 61440")    .Reg(.bp, 0xf000),
+        TC.Init(@src()).Inst("\xbb\x01\x00",         "mov bx, 1")        .Reg(.bx, 0x0001),
+        TC.Init(@src()).Inst("\xc7\x46\x00\x05\x00", "mov [bp], word 5") .Reg(.bx, 0x0001),
+        TC.Init(@src()).Inst("\x29\x5e\x00",         "sub [bp], bx")     .Reg(.bx, 0x0001),
+        TC.Init(@src()).Inst("\x29\x5e\x00",         "sub [bp], bx")     .Reg(.bx, 0x0001),
+        TC.Init(@src()).Inst("\x29\x5e\x00",         "sub [bp], bx")     .Reg(.bx, 0x0001),
+        TC.Init(@src()).Inst("\x8b\x5e\x00",         "mov bx, [bp]")     .Reg(.bx, 0x0002),
         // setup and test
-        .{ .src = @src(), .mem = "\xbb\xfe\xef",             .reg = .bx, .val = 0xeffe, .msg = "mov bx, 61438" },
-        .{ .src = @src(), .mem = "\xc7\x06\x00\xf0\x07\x00", .reg = .bx, .val = 0xeffe, .msg = "mov [61440], word 7" },
-        .{ .src = @src(), .mem = "\xb9\x01\x00",             .reg = .cx, .val = 0x0001, .msg = "mov cx, 1" },
-        .{ .src = @src(), .mem = "\x29\x4f\x02",             .reg = .cx, .val = 0x0001, .msg = "sub [bx + 2], cx" },
-        .{ .src = @src(), .mem = "\x8b\x4f\x02",             .reg = .cx, .val = 0x0006, .msg = "mov cx, [bx + 2]" },
+        TC.Init(@src()).Inst("\xbb\xfe\xef",             "mov bx, 61438")       .Reg(.bx, 0xeffe),
+        TC.Init(@src()).Inst("\xc7\x06\x00\xf0\x07\x00", "mov [61440], word 7") .Reg(.bx, 0xeffe),
+        TC.Init(@src()).Inst("\xb9\x01\x00",             "mov cx, 1")           .Reg(.cx, 0x0001),
+        TC.Init(@src()).Inst("\x29\x4f\x02",             "sub [bx + 2], cx")    .Reg(.cx, 0x0001),
+        TC.Init(@src()).Inst("\x8b\x4f\x02",             "mov cx, [bx + 2]")    .Reg(.cx, 0x0006),
         // setup and test
-        .{ .src = @src(), .mem = "\xbd\xd8\xef",         .reg = .bp, .val = 0xefd8, .msg = "mov bp, 61400" },
-        .{ .src = @src(), .mem = "\xbe\x24\x00",         .reg = .si, .val = 0x0024, .msg = "mov si, 36" },
-        .{ .src = @src(), .mem = "\xc6\x06\x00\xf0\x08", .reg = .si, .val = 0x0024, .msg = "mov [61440], byte 8" },
-        .{ .src = @src(), .mem = "\xb7\x02",             .reg = .bh, .val = 0x02,   .msg = "mov bh, 2" },
-        .{ .src = @src(), .mem = "\x28\x7a\x04",         .reg = .bh, .val = 0x02,   .msg = "sub [bp + si + 4], bh" },
-        .{ .src = @src(), .mem = "\xb0\x00",             .reg = .al, .val = 0x00,   .msg = "mov al, 0" },
-        .{ .src = @src(), .mem = "\xa0\x00\xf0",         .reg = .al, .val = 0x06,   .msg = "mov al, [61440]" },
+        TC.Init(@src()).Inst("\xbd\xd8\xef",         "mov bp, 61400")         .Reg(.bp, 0xefd8),
+        TC.Init(@src()).Inst("\xbe\x24\x00",         "mov si, 36")            .Reg(.si, 0x0024),
+        TC.Init(@src()).Inst("\xc6\x06\x00\xf0\x08", "mov [61440], byte 8")   .Reg(.si, 0x0024),
+        TC.Init(@src()).Inst("\xb7\x02",             "mov bh, 2")             .Reg(.bh, 0x02),
+        TC.Init(@src()).Inst("\x28\x7a\x04",         "sub [bp + si + 4], bh") .Reg(.bh, 0x02),
+        TC.Init(@src()).Inst("\xb0\x00",             "mov al, 0")             .Reg(.al, 0x00),
+        TC.Init(@src()).Inst("\xa0\x00\xf0",         "mov al, [61440]")       .Reg(.al, 0x06),
         // setup and test
-        .{ .src = @src(), .mem = "\xb8\x00\x00",             .reg = .ax, .val = 0x0000, .msg = "mov ax, 0" },
-        .{ .src = @src(), .mem = "\xc7\x06\x00\xf0\x05\x00", .reg = .ax, .val = 0x0000, .msg = "mov [61440], word 5" },
-        .{ .src = @src(), .mem = "\xbd\xd8\xef",             .reg = .bp, .val = 0xefd8, .msg = "mov bp, 61400" },
-        .{ .src = @src(), .mem = "\xbf\x02\x00",             .reg = .di, .val = 0x0002, .msg = "mov di, 2" },
-        .{ .src = @src(), .mem = "\x29\x7b\x26",             .reg = .di, .val = 0x0002, .msg = "sub [bp + di + 38], di" },
-        .{ .src = @src(), .mem = "\xa1\x00\xf0",             .reg = .ax, .val = 0x0003, .msg = "mov ax, [61440]" },
+        TC.Init(@src()).Inst("\xb8\x00\x00",             "mov ax, 0")              .Reg(.ax, 0x0000),
+        TC.Init(@src()).Inst("\xc7\x06\x00\xf0\x05\x00", "mov [61440], word 5")    .Reg(.ax, 0x0000),
+        TC.Init(@src()).Inst("\xbd\xd8\xef",             "mov bp, 61400")          .Reg(.bp, 0xefd8),
+        TC.Init(@src()).Inst("\xbf\x02\x00",             "mov di, 2")              .Reg(.di, 0x0002),
+        TC.Init(@src()).Inst("\x29\x7b\x26",             "sub [bp + di + 38], di") .Reg(.di, 0x0002),
+        TC.Init(@src()).Inst("\xa1\x00\xf0",             "mov ax, [61440]")        .Reg(.ax, 0x0003),
         // setup and test
-        .{ .src = @src(), .mem = "\xbb\x00\xf0",         .reg = .bx, .val = 0xf000, .msg = "mov bx, 61440" },
-        .{ .src = @src(), .mem = "\xc6\x06\x00\xf0\x28", .reg = .bx, .val = 0xf000, .msg = "mov [61440], byte 40" },
-        .{ .src = @src(), .mem = "\x80\x2f\x22",         .reg = .bx, .val = 0xf000, .msg = "sub [bx], byte 34" },
-        .{ .src = @src(), .mem = "\xa0\x00\xf0",         .reg = .al, .val = 0x06,   .msg = "mov al, [61440]" },
+        TC.Init(@src()).Inst("\xbb\x00\xf0",         "mov bx, 61440")        .Reg(.bx, 0xf000),
+        TC.Init(@src()).Inst("\xc6\x06\x00\xf0\x28", "mov [61440], byte 40") .Reg(.bx, 0xf000),
+        TC.Init(@src()).Inst("\x80\x2f\x22",         "sub [bx], byte 34")    .Reg(.bx, 0xf000),
+        TC.Init(@src()).Inst("\xa0\x00\xf0",         "mov al, [61440]")      .Reg(.al, 0x06),
         // setup and test
-        .{ .src = @src(), .mem = "\xbd\xf0\xeb",             .reg = .bp, .val = 0xebf0, .msg = "mov bp, 60400" },
-        .{ .src = @src(), .mem = "\xbe\x28\x00",             .reg = .si, .val = 0x0028, .msg = "mov si, 40" },
-        .{ .src = @src(), .mem = "\xc7\x06\x00\xf0\x1e\x00", .reg = .si, .val = 0x0028, .msg = "mov [61440], word 30" },
-        .{ .src = @src(), .mem = "\x83\xaa\xe8\x03\x1d\x00", .reg = .si, .val = 0x0028, .msg = "sub [bp + si + 1000], word 29" },
-        .{ .src = @src(), .mem = "\xa1\x00\xf0",             .reg = .ax, .val = 0x0001, .msg = "mov ax, [61440]" },
+        TC.Init(@src()).Inst("\xbd\xf0\xeb",             "mov bp, 60400")                 .Reg(.bp, 0xebf0),
+        TC.Init(@src()).Inst("\xbe\x28\x00",             "mov si, 40")                    .Reg(.si, 0x0028),
+        TC.Init(@src()).Inst("\xc7\x06\x00\xf0\x1e\x00", "mov [61440], word 30")          .Reg(.si, 0x0028),
+        TC.Init(@src()).Inst("\x83\xaa\xe8\x03\x1d\x00", "sub [bp + si + 1000], word 29") .Reg(.si, 0x0028),
+        TC.Init(@src()).Inst("\xa1\x00\xf0",             "mov ax, [61440]")               .Reg(.ax, 0x0001),
         // setup and test
-        .{ .src = @src(), .mem = "\xb8\x11\x00",             .reg = .ax, .val = 0x0011, .msg = "mov ax, 17" },
-        .{ .src = @src(), .mem = "\xbd\x00\xf0",             .reg = .bp, .val = 0xf000, .msg = "mov bp, 61440" },
-        .{ .src = @src(), .mem = "\xc7\x06\x00\xf0\x01\x00", .reg = .bp, .val = 0xf000, .msg = "mov [61440], word 1" },
-        .{ .src = @src(), .mem = "\x2b\x46\x00",             .reg = .ax, .val = 0x0010, .msg = "sub ax, [bp]" },
+        TC.Init(@src()).Inst("\xb8\x11\x00",             "mov ax, 17")          .Reg(.ax, 0x0011),
+        TC.Init(@src()).Inst("\xbd\x00\xf0",             "mov bp, 61440")       .Reg(.bp, 0xf000),
+        TC.Init(@src()).Inst("\xc7\x06\x00\xf0\x01\x00", "mov [61440], word 1") .Reg(.bp, 0xf000),
+        TC.Init(@src()).Inst("\x2b\x46\x00",             "sub ax, [bp]")        .Reg(.ax, 0x0010),
         // cmp tests
         //.{ .src = @src(), .bytes = "\x3b\x18", .output = "cmp bx, [bx + si]" },
         //.{ .src = @src(), .bytes = "\x3b\x5e\x00", .output = "cmp bx, [bp]" },
@@ -1474,18 +1464,24 @@ test "8086.Simulator" {
     var fbs = io.fixedBufferStream(&output_buffer);
     const logger = fbs.writer();
 
-    for (test_cases, 0..) |test_case, index| {
+    for (test_cases, 0..) |tc, index| {
         // reset the buffer at the end of the loop
         defer fbs.reset();
         // print details on failure
-        errdefer debug.print("failed on test case {d} (line {d}): {s}\n", .{index+1, test_case.src.line, test_case.msg});
+        errdefer debug.print("failed on test case {d} (line {d}): {}\n", .{index+1, tc.src.line, tc});
         // NOTE: change to just defer to have complete run output for debugging
         errdefer debug.print("{s}\n", .{output_buffer[0..fbs.pos]});
-        // setup - we do not reset or override memory - only append to it
-        mem.copyForwards(u8, simulator.memory[simulator.ip..], test_case.mem);
-        simulator.memory[simulator.ip + test_case.mem.len] = 0xf4; // hlt at the end
-        // run and validate
-        try simulator.run(logger);
-        try testing.expectEqual(test_case.val, simulator.getRegister(test_case.reg));
+        // execute instructions if any
+        if (tc.inst) |inst| {
+            // setup - we do not reset or override memory - only append to it
+            std.mem.copyForwards(u8, simulator.memory[simulator.ip..], inst.mem);
+            simulator.memory[simulator.ip + inst.mem.len] = 0xf4; // hlt at the end
+            // execute
+            try simulator.run(logger);
+        }
+        // validation
+        if (tc.mem)  |mem|  { try testing.expectEqualSlices(u8, mem.val, simulator.memory[mem.addr..(mem.addr+mem.val.len)]); }
+        if (tc.reg)  |reg|  { try testing.expectEqual(reg.val, simulator.getRegister(reg.reg)); }
+        if (tc.flag) |flag| { try testing.expectEqual(flag.val, simulator.getFlag(flag.flag)); }
     }
 }
