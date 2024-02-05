@@ -58,10 +58,14 @@ pub fn main() !void {
     if (simulate) {
         debug.print("simulating...\n", .{});
         var simulator = std.mem.zeroes(CPU8086.Simulator);
-        // put "mov cl, 12" instruction into memory
-        std.mem.copyForwards(u8, &simulator.memory, "\xB1\x0C");
+        // read entire file into the simulator memory
+        const bytes_read = try file_reader.readAll(&simulator.memory);
+        // add hlt instruction at the end
+        simulator.memory[bytes_read] = CPU8086.hlt;
+        // and run
         try simulator.run(stdout_file);
-        try simulator.setRegister(.ah, 0x0011);
+        debug.print("simulation ended - here are the registers:\n", .{});
+        // print state of the registers at the end
         try simulator.printRegisters();
     }
     else { // decode
@@ -76,6 +80,8 @@ pub fn main() !void {
 }
 
 const CPU8086 = struct {
+    pub const hlt: u8 = 0xf4;
+
     pub const Register = enum(u8) { // DO NOT CHANGE THE ORDER
         al, ax, cl, cx, dl, dx, bl, bx, ah, sp, ch, bp, dh, si, bh, di,
 
@@ -1491,7 +1497,7 @@ test "8086.Simulator" {
         if (tc.inst) |inst| {
             // setup - we do not reset or override memory - only append to it
             std.mem.copyForwards(u8, simulator.memory[simulator.ip..], inst.mem);
-            simulator.memory[simulator.ip + inst.mem.len] = 0xf4; // hlt at the end
+            simulator.memory[simulator.ip + inst.mem.len] = CPU8086.hlt; // hlt at the end
             // execute
             try simulator.run(logger);
         }
