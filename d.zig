@@ -399,7 +399,7 @@ const CPU8086 = struct {
         const registers_count = 8+4; // 8 regular registers (abcd + sp, si, bp, di) and 4 segment registers (page 24)
 
         pub fn getFlag(self: @This(), flag: Flag) bool {
-            return self.flags & (@as(u16, 1)<<@intFromEnum(flag)) == 1;
+            return self.flags & (@as(u16, 1)<<@intFromEnum(flag)) != 0;
         }
 
         pub fn setFlag(self: *@This(), flag: Flag, value: bool) void {
@@ -502,9 +502,9 @@ const CPU8086 = struct {
         fn cmp(self: *@This(), dst: InstructionTarget, src: InstructionTarget, logger: anytype) !void {
             const src_value = try self.getSrcValue(dst, src, null,           logger); _ = try logger.write(", ");
             const dst_value = try self.getSrcValue(dst, dst, src_value.wide, logger); _ = try logger.write(", ");
-            const diff = dst_value.val - src_value.val;
-            self.setFlag(.sf, diff < 0);
-            self.setFlag(.zf, diff == 0);
+            const sf = dst_value.val <  src_value.val; self.setFlag(.sf, sf);
+            const zf = dst_value.val == src_value.val; self.setFlag(.zf, zf);
+            try logger.print(", sf: {s}  zf: {s}", .{ if (sf) "1" else "0", if (zf) "1" else "0" });
         }
 
         const Value = struct { val: u16, wide: bool, };
@@ -1079,6 +1079,14 @@ test "8086.Simulator" {
     try testing.expectEqual(simulator.ip, 0x0000);
     for (simulator.memory) |m| { try testing.expectEqual(m, 0x00); }
 
+    // test flags
+    try testing.expectEqual(false, simulator.getFlag(.zf));
+    try testing.expectEqual(false, simulator.getFlag(.sf));
+    simulator.setFlag(.zf, true);  try testing.expectEqual(true,  simulator.getFlag(.zf));
+    simulator.setFlag(.sf, true);  try testing.expectEqual(true,  simulator.getFlag(.sf));
+    simulator.setFlag(.zf, false); try testing.expectEqual(false, simulator.getFlag(.zf));
+    simulator.setFlag(.sf, false); try testing.expectEqual(false, simulator.getFlag(.sf));
+
     // test registers set/get
     var vi: u4 = 0;
     inline for (@typeInfo(CPU8086.Register).Enum.fields) |field| {
@@ -1107,16 +1115,16 @@ test "8086.Simulator" {
     const TC = struct { // TestCase
         src: std.builtin.SourceLocation,
 
-        inst: ?struct { mem:  []const u8,             txt: []const u8, }, // execute instruction with an asm/text for printing
-        mem:  ?struct { addr: u16,                    val: []const u8  }, // test if memory addr has provided val
-        reg:  ?struct { reg:  CPU8086.Register,       val: u16         }, // test if given register has provided value
-        flag: ?struct { flag: CPU8086.Simulator.Flag, val: bool        }, // test if given flag has provided value
+        inst:  ?struct { mem:  []const u8,        txt: []const u8, }, // execute instruction with an asm/text for printing
+        mem:   ?struct { addr: u16,               val: []const u8  }, // test if memory addr has provided val
+        reg:   ?struct { reg:  CPU8086.Register,  val: u16         }, // test if given register has provided value
+        flags: ?struct { zf:   bool,              sf:  bool        }, // test if given flag has provided value
 
-        pub fn Init(src: std.builtin.SourceLocation) @This() { return .{ .src = src, .inst = null, .mem = null, .reg = null, .flag = null, }; }
-        pub fn Inst(tc: @This(), mem: []const u8,       txt: []const u8) @This() { var new = tc; new.inst = .{ .mem  = mem,  .txt = txt }; return new; }
-        pub fn Mem (tc: @This(), addr: u16,             val: []const u8) @This() { var new = tc; new.mem  = .{ .addr = addr, .val = val }; return new; }
-        pub fn Reg (tc: @This(), reg: CPU8086.Register, val: u16)        @This() { var new = tc; new.reg  = .{ .reg  = reg,  .val = val }; return new; }
-        pub fn Flag(tc: @This(), flag: CPU8086.Flag,    val: bool)       @This() { var new = tc; new.flag = .{ .flag = flag, .val = val }; return new; }
+        pub fn Init (src: std.builtin.SourceLocation) @This() { return .{ .src = src, .inst = null, .mem = null, .reg = null, .flags = null, }; }
+        pub fn Inst (tc: @This(), mem:  []const u8,       txt: []const u8) @This() { var new = tc; new.inst  = .{ .mem  = mem,  .txt = txt }; return new; }
+        pub fn Mem  (tc: @This(), addr: u16,              val: []const u8) @This() { var new = tc; new.mem   = .{ .addr = addr, .val = val }; return new; }
+        pub fn Reg  (tc: @This(), reg:  CPU8086.Register, val: u16)        @This() { var new = tc; new.reg   = .{ .reg  = reg,  .val = val }; return new; }
+        pub fn Flags(tc: @This(), zf:   bool,              sf: bool)       @This() { var new = tc; new.flags = .{ .zf   = zf,   .sf  =  sf }; return new; }
     };
     const test_cases = [_]TC{
         // 8-bit immediate-to-register
@@ -1435,30 +1443,37 @@ test "8086.Simulator" {
         TC.Init(@src()).Inst("\xc7\x06\x00\xf0\x01\x00", "mov [61440], word 1") .Reg(.bp, 0xf000),
         TC.Init(@src()).Inst("\x2b\x46\x00",             "sub ax, [bp]")        .Reg(.ax, 0x0010),
         // cmp tests
-        //.{ .src = @src(), .bytes = "\x3b\x18", .output = "cmp bx, [bx + si]" },
-        //.{ .src = @src(), .bytes = "\x3b\x5e\x00", .output = "cmp bx, [bp]" },
-        //.{ .src = @src(), .bytes = "\x83\xfe\x02\x00", .output = "cmp si, 2" },
-        //.{ .src = @src(), .bytes = "\x83\xfd\x02\x00", .output = "cmp bp, 2" },
-        //.{ .src = @src(), .bytes = "\x83\xf9\x08\x00", .output = "cmp cx, 8" },
-        //.{ .src = @src(), .bytes = "\x3b\x5e\x00", .output = "cmp bx, [bp]" },
-        //.{ .src = @src(), .bytes = "\x3b\x4f\x02", .output = "cmp cx, [bx + 2]" },
-        //.{ .src = @src(), .bytes = "\x3a\x7a\x04", .output = "cmp bh, [bp + si + 4]" },
-        //.{ .src = @src(), .bytes = "\x3b\x7b\x06", .output = "cmp di, [bp + di + 6]" },
-        //.{ .src = @src(), .bytes = "\x39\x18", .output = "cmp [bx + si], bx" },
-        //.{ .src = @src(), .bytes = "\x39\x5e\x00", .output = "cmp [bp], bx" },
-        //.{ .src = @src(), .bytes = "\x39\x5e\x00", .output = "cmp [bp], bx" },
-        //.{ .src = @src(), .bytes = "\x39\x4f\x02", .output = "cmp [bx + 2], cx" },
-        //.{ .src = @src(), .bytes = "\x38\x7a\x04", .output = "cmp [bp + si + 4], bh" },
-        //.{ .src = @src(), .bytes = "\x39\x7b\x06", .output = "cmp [bp + di + 6], di" },
-        //.{ .src = @src(), .bytes = "\x80\x3f\x22", .output = "cmp [bx], byte 34" },
-        //.{ .src = @src(), .bytes = "\x83\x3e\xe2\x12\x1d\x00", .output = "cmp [4834], word 29" },
-        //.{ .src = @src(), .bytes = "\x3b\x46\x00", .output = "cmp ax, [bp]" },
-        //.{ .src = @src(), .bytes = "\x3a\x00", .output = "cmp al, [bx + si]" },
-        //.{ .src = @src(), .bytes = "\x39\xd8", .output = "cmp ax, bx" },
-        //.{ .src = @src(), .bytes = "\x38\xe0", .output = "cmp al, ah" },
-        //.{ .src = @src(), .bytes = "\x3d\xe8\x03", .output = "cmp ax, 1000" },
-        //.{ .src = @src(), .bytes = "\x3c\xe2", .output = "cmp al, -30" },
-        //.{ .src = @src(), .bytes = "\x3c\x09", .output = "cmp al, 9" },
+        // setup and test
+        TC.Init(@src()).Inst("\xb0\x09", "mov al, 9")  .Reg(.al, 0x09),
+        TC.Init(@src()).Inst("\xb4\x09", "mov ah, 9")  .Reg(.ah, 0x09),
+        TC.Init(@src()).Inst("\x38\xe0", "cmp al, ah") .Flags(true, false),
+        // setup and test
+        TC.Init(@src()).Inst("\x3c\x0a", "cmp al, 10")  .Flags(false, true),
+        TC.Init(@src()).Inst("\x3c\xe2", "cmp al, -30") .Flags(false, true),
+        // setup and test
+        TC.Init(@src()).Inst("\xb8\x7b\x00", "mov ax, 123") .Reg(.ax, 0x007b),
+        TC.Init(@src()).Inst("\xbb\x7c\x00", "mov bx, 124") .Reg(.bx, 0x007c),
+        TC.Init(@src()).Inst("\x39\xd8",     "cmp ax, bx")  .Flags(false, true),
+        TC.Init(@src()).Inst("\xb8\x7b\x00", "mov ax, 123") .Reg(.ax, 0x007b),
+        TC.Init(@src()).Inst("\xbb\x7a\x00", "mov bx, 122") .Reg(.bx, 0x007a),
+        TC.Init(@src()).Inst("\x39\xd8",     "cmp ax, bx")  .Flags(false, false),
+        TC.Init(@src()).Inst("\xb8\x7b\x00", "mov ax, 123") .Reg(.ax, 0x007b),
+        TC.Init(@src()).Inst("\xbb\x7b\x00", "mov bx, 123") .Reg(.bx, 0x007b),
+        TC.Init(@src()).Inst("\x39\xd8",     "cmp ax, bx")  .Flags(true, false),
+        // setup and test
+        TC.Init(@src()).Inst("\xbe\x0c\x00",     "mov si, 12") .Reg(.si, 0x000c),
+        TC.Init(@src()).Inst("\x83\xfe\x0c\x00", "cmp si, 12") .Flags(true, false),
+        TC.Init(@src()).Inst("\x83\xfe\x0d\x00", "cmp si, 13") .Flags(false, true),
+        TC.Init(@src()).Inst("\x83\xfe\x0b\x00", "cmp si, 11") .Flags(false, false),
+        // setup and test
+        TC.Init(@src()).Inst("\xbb\xd8\xef",             "mov bx, 61400")           .Reg(.bx, 0xefd8),
+        TC.Init(@src()).Inst("\xbe\x28\x00",             "mov si, 40")              .Reg(.si, 0x0028),
+        TC.Init(@src()).Inst("\xc7\x06\x00\xf0\xd8\xef", "mov [61440], word 61400") .Mem(61440, "\xef\xd8"),
+        TC.Init(@src()).Inst("\x3b\x18",                 "cmp bx, [bx + si]")       .Flags(true, false),
+        TC.Init(@src()).Inst("\xc7\x06\x00\xf0\xd9\xef", "mov [61440], word 61401") .Mem(61440, "\xef\xd9"),
+        TC.Init(@src()).Inst("\x3b\x18",                 "cmp bx, [bx + si]")       .Flags(false, true),
+        TC.Init(@src()).Inst("\xc7\x06\x00\xf0\xd7\xef", "mov [61440], word 61399") .Mem(61440, "\xef\xd7"),
+        TC.Init(@src()).Inst("\x3b\x18",                 "cmp bx, [bx + si]")       .Flags(false, false),
     };
     var output_buffer: [1024*1024]u8 = undefined;
     var fbs = io.fixedBufferStream(&output_buffer);
@@ -1468,7 +1483,8 @@ test "8086.Simulator" {
         // reset the buffer at the end of the loop
         defer fbs.reset();
         // print details on failure
-        errdefer debug.print("failed on test case {d} (line {d}): {}\n", .{index+1, tc.src.line, tc});
+        errdefer debug.print("failed on test case {d} (line {d}): {s}\n", .{index+1, tc.src.line,
+            (if (tc.inst) |inst| inst.txt else "no instruction") });
         // NOTE: change to just defer to have complete run output for debugging
         errdefer debug.print("{s}\n", .{output_buffer[0..fbs.pos]});
         // execute instructions if any
@@ -1480,8 +1496,12 @@ test "8086.Simulator" {
             try simulator.run(logger);
         }
         // validation
-        if (tc.mem)  |mem|  { try testing.expectEqualSlices(u8, mem.val, simulator.memory[mem.addr..(mem.addr+mem.val.len)]); }
-        if (tc.reg)  |reg|  { try testing.expectEqual(reg.val, simulator.getRegister(reg.reg)); }
-        if (tc.flag) |flag| { try testing.expectEqual(flag.val, simulator.getFlag(flag.flag)); }
+        if (tc.mem)   |mem|   { try testing.expectEqualSlices(u8, mem.val, simulator.memory[mem.addr..(mem.addr+mem.val.len)]); }
+        if (tc.reg)   |reg|   { try testing.expectEqual(reg.val, simulator.getRegister(reg.reg)); }
+        if (tc.flags) |flags| { errdefer debug.print("expected zf = {s} got {s}, expected sf = {s} got {s}\n",
+                                    .{ if (flags.zf) "1" else "0", if (simulator.getFlag(.zf)) "1" else "0",
+                                       if (flags.sf) "1" else "0", if (simulator.getFlag(.sf)) "1" else "0", });
+                                try testing.expectEqual(flags.zf, simulator.getFlag(.zf));
+                                try testing.expectEqual(flags.sf, simulator.getFlag(.sf)); }
     }
 }
